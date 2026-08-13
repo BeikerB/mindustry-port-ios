@@ -32,16 +32,16 @@ jobs:
 
       - name: Resolve Dependencies & Extract MetalANGLEKit
         run: |
-          # 1. Define target directories expected by clang++ and Mindustry
+          # 1. Correct target path required by clang++
           TARGET_CACHE="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
           mkdir -p "$TARGET_CACHE"
           mkdir -p Mindustry/ios/libs/Frameworks
 
-          # 2. Copy static libraries (.a) from Arc repository checkout
+          # 2. Copy static libraries from Arc repo
           echo "Copying static libraries from Arc..."
           find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
 
-          # 3. Search local checkouts and caches for MetalANGLE/MetalANGLEKit
+          # 3. Search local filesystem/caches first
           echo "Scanning filesystem for MetalANGLE frameworks..."
           find Arc Mindustry ~/.gradle ~/.m2 ~/.robovm -type d \( -name "MetalANGLEKit.framework" -o -name "MetalANGLE.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
             echo "Found framework: $FW"
@@ -49,36 +49,42 @@ jobs:
             cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
           done
 
-          # 4. Fallback: Download MetalANGLE directly from GitHub Releases/Raw if not present
+          # 4. Reliable Maven Fallback: Fetch official robovm-cocoatouch JAR containing MetalANGLE
           if [ ! -d "$TARGET_CACHE/MetalANGLEKit.framework" ] && [ ! -d "$TARGET_CACHE/MetalANGLE.framework" ]; then
-            echo "Framework missing locally. Downloading MetalANGLE framework directly..."
-            
-            # Download compiled MetalANGLE framework from GitHub raw/release sources
-            curl -L -s -o /tmp/MetalANGLE.zip "https://raw.githubusercontent.com/Anuken/Arc/master/backends/backend-robovm/libs/MetalANGLEKit.zip" || \
-            curl -L -s -o /tmp/MetalANGLE.zip "https://github.com/mobidevelop/robovm/releases/download/robovm-2.3.14/MetalANGLEKit.zip" || true
+            echo "Framework missing locally. Fetching RoboVM Maven artifacts..."
 
-            if [ -f "/tmp/MetalANGLE.zip" ]; then
-              echo "Extracting MetalANGLE.zip..."
-              unzip -o -q /tmp/MetalANGLE.zip -d /tmp/ma_extract || true
-              
-              find /tmp/ma_extract -type d \( -name "*.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
+            # Download Maven JARs that bundle native iOS frameworks
+            curl -L -s -o /tmp/robovm-cocoatouch.jar "https://repo1.maven.org/maven2/io/github/berstanio/robovm-cocoatouch/2.3.15/robovm-cocoatouch-2.3.15.jar" || \
+            curl -L -s -o /tmp/robovm-cocoatouch.jar "https://repo1.maven.org/maven2/com/mobidevelop/robovm/robovm-cocoatouch/2.3.14/robovm-cocoatouch-2.3.14.jar" || true
+
+            if [ -f "/tmp/robovm-cocoatouch.jar" ]; then
+              echo "Extracting robovm-cocoatouch.jar..."
+              unzip -o -q /tmp/robovm-cocoatouch.jar -d /tmp/jar_extract || true
+
+              # Copy extracted framework directories
+              find /tmp/jar_extract -type d \( -name "*.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
                 echo "--> Extracted: $(basename "$FW")"
                 cp -R "$FW" "$TARGET_CACHE/" || true
                 cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
               done
-              rm -rf /tmp/ma_extract
+
+              # Copy raw META-INF robovm contents directly
+              if [ -d "/tmp/jar_extract/META-INF/robovm/ios/libs" ]; then
+                cp -R /tmp/jar_extract/META-INF/robovm/ios/libs/* "$TARGET_CACHE/" || true
+                cp -R /tmp/jar_extract/META-INF/robovm/ios/libs/* Mindustry/ios/libs/Frameworks/ 2>/dev/null || true
+              fi
+
+              rm -rf /tmp/jar_extract /tmp/robovm-cocoatouch.jar
             fi
           fi
 
-          # -------------------------------------------------------------
-          # 5. FAIL-FAST CHECKER: Fail in seconds if framework wasn't placed
-          # -------------------------------------------------------------
+          # 5. Sanity Check
           echo "=== Target Cache Contents ==="
           ls -la "$TARGET_CACHE" || true
           echo "=== Mindustry Frameworks Contents ==="
           ls -la Mindustry/ios/libs/Frameworks/ || true
 
-          if [ ! -d "$TARGET_CACHE/MetalANGLEKit.framework" ] && [ ! -d "$TARGET_CACHE/MetalANGLE.framework" ]; then
+          if [ -z "$(ls -A "$TARGET_CACHE")" ]; then
             echo "---------------------------------------------------------"
             echo "CRITICAL ERROR: MetalANGLEKit.framework is still missing!"
             echo "---------------------------------------------------------"
