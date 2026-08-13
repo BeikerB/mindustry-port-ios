@@ -1,0 +1,30 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch: # Allows you to manually trigger the build with a button press
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Grant Execute Permissions
+        run: chmod +x gradlew
+
+      - name: Build iOS Application
+        run: ./gradlew ios:deploy
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mindustry-iOS-Build
+          path: ios/build/robovm/*.ipa
