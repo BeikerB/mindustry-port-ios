@@ -33,7 +33,7 @@ jobs:
         run: |
           cd Mindustry
           ./gradlew pack
-          ./gradlew ios:device -Probovm.iosSkipSigning=true -Probovm.archs=arm64
+          ./gradlew ios:iosDevice -Probovm.iosSkipSigning=true -Probovm.archs=arm64
 
       - name: Package into IPA
         run: |
