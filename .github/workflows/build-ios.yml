@@ -58,20 +58,17 @@ jobs:
           # 5. Unpack all RoboVM & Arc JARs found in Gradle/Maven caches
           echo "Scanning JAR files in caches for embedded frameworks..."
           find ~/.gradle ~/.m2 ~/.robovm Arc Mindustry -name "*.jar" 2>/dev/null | while read JAR; do
-            # Check if JAR contains frameworks or robovm files
             if unzip -l "$JAR" 2>/dev/null | grep -iE "framework|robovm|MetalANGLE"; then
               echo "Extracting matching JAR: $JAR"
               TMP_DIR=$(mktemp -d)
               unzip -o -q "$JAR" -d "$TMP_DIR"
               
-              # Copy any found framework bundles
               find "$TMP_DIR" -type d \( -name "*.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
                 echo "--> Extracted framework: $(basename "$FW")"
                 cp -R "$FW" "$TARGET_CACHE/" || true
                 cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
               done
               
-              # Copy any files inside META-INF/robovm/ directly to cache
               if [ -d "$TMP_DIR/META-INF/robovm" ]; then
                 cp -R "$TMP_DIR/META-INF/robovm/"* "$TARGET_CACHE/" 2>/dev/null || true
               fi
@@ -95,6 +92,15 @@ jobs:
           fi
 
           echo "SUCCESS: Native frameworks found! Proceeding to build."
+
+      - name: Build Unsigned iOS App
+        run: |
+          cd Mindustry
+          ./gradlew pack
+          ./gradlew :ios:createIPA \
+            -Probovm.iosSkipSigning=true \
+            -Probovm.archs=arm64 \
+            -Probovm.device.name="iPhone"
 
       - name: Package into Sideloadable IPA
         run: |
