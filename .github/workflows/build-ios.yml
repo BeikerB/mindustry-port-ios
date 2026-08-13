@@ -29,20 +29,13 @@ jobs:
         run: |
           chmod +x Mindustry/gradlew
 
-      - name: Build Unsigned iOS App
+      - name: Print Available iOS Tasks
+        run: |
+          cd Mindustry
+          ./gradlew :ios:tasks
+
+      - name: Attempt Build with Stacktrace
         run: |
           cd Mindustry
           ./gradlew pack
-          ./gradlew ios:iosDevice -Probovm.iosSkipSigning=true -Probovm.archs=arm64
-
-      - name: Package into IPA
-        run: |
-          mkdir -p Payload
-          cp -r Mindustry/ios/build/robovm/IOSLauncher.app Payload/
-          zip -r Mindustry-v8-unsigned.ipa Payload
-
-      - name: Upload IPA Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mindustry-iOS-IPA
-          path: Mindustry-v8-unsigned.ipa
+          ./gradlew :ios:createIPA -Probovm.iosSkipSigning=true --stacktrace
