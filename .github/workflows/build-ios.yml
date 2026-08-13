@@ -30,20 +30,14 @@ jobs:
           chmod +x Mindustry/gradlew
           chmod +x Arc/gradlew || true
 
-      - name: Build Arc & Copy Native Libraries
+      - name: Download & Setup Prebuilt Native Libraries
         run: |
-          # Create target libs directory inside Mindustry
           mkdir -p Mindustry/ios/libs/
 
-          # Build Arc to generate static native binaries (.a)
-          cd Arc
-          ./gradlew build -x test || true
-          cd ..
+          # Download the official pre-compiled libarc-freetype.a library
+          curl -L -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Mindustry/master/ios/libs/libarc-freetype.a"
 
-          # Copy generated static libraries into Mindustry/ios/libs/
-          find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \;
-
-          # Verify libarc-freetype.a exists
+          # Verify the library was downloaded successfully
           ls -la Mindustry/ios/libs/
 
       - name: Build Unsigned iOS App
