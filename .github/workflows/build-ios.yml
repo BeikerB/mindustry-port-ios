@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-latest
+    runs-on: macos-14 # Uses an Apple Silicon runner with standard Xcode 15/16 toolchains
 
     steps:
       - name: Checkout Mindustry
@@ -29,13 +29,25 @@ jobs:
         run: |
           chmod +x Mindustry/gradlew
 
-      - name: Print Available iOS Tasks
-        run: |
-          cd Mindustry
-          ./gradlew :ios:tasks
-
-      - name: Attempt Build with Stacktrace
+      - name: Build Unsigned iOS App
         run: |
           cd Mindustry
           ./gradlew pack
-          ./gradlew :ios:createIPA -Probovm.iosSkipSigning=true --stacktrace
+          ./gradlew :ios:createIPA \
+            -Probovm.iosSkipSigning=true \
+            -Probovm.archs=thumb64 \
+            -Probovm.device.name="iPhone"
+
+      - name: Package into Sideloadable IPA
+        run: |
+          mkdir -p Payload
+          # Find the compiled .app bundle and copy it to Payload
+          APP_PATH=$(find Mindustry/ios/build/robovm -name "*.app" | head -n 1)
+          cp -r "$APP_PATH" Payload/
+          zip -r Mindustry-v8-unsigned.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mindustry-iOS-IPA
+          path: Mindustry-v8-unsigned.ipa
