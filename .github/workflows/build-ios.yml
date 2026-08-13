@@ -1,7 +1,7 @@
 name: Build iOS IPA
 
 on:
-  workflow_dispatch: # Allows you to manually trigger the build with a button press
+  workflow_dispatch:
 
 jobs:
   build-ios:
@@ -17,11 +17,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Grant Execute Permissions
+      - name: Grant Permissions
         run: chmod +x gradlew
 
-      - name: Build iOS Application
-        run: ./gradlew ios:deploy
+      - name: Build Unsigned iOS Application
+        run: ./gradlew ios:createIPA -Probovm.iosSkipSigning=true -Probovm.archs=arm64
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
