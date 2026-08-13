@@ -29,9 +29,6 @@ jobs:
         run: |
           chmod +x Mindustry/gradlew
           chmod +x Arc/gradlew || true
-
-      - name: Download Prebuilt Static Libraries & Prepare RoboVM Frameworks
-        run: |
           # 1. Fetch prebuilt static C++ library (libarc-freetype.a)
           mkdir -p Mindustry/ios/libs/
           curl -L -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Mindustry/master/ios/libs/libarc-freetype.a"
@@ -42,17 +39,18 @@ jobs:
           cd ..
 
           # 3. Extract the frameworks (MetalANGLEKit, etc.) directly into the cache directory RoboVM expects
-          TARGET_DIR="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
+          TARGET_DIR="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF[...]"
           mkdir -p "$TARGET_DIR"
+          mkdir -p /tmp/robovm_extract/
 
           JAR_FILE=$(find Arc/backends/backend-robovm/build/libs -name "*.jar" | head -n 1)
           if [ -n "$JAR_FILE" ]; then
-            unzip -o "$JAR_FILE" "META-INF/robovm/ios/libs/*" -d /tmp/robovm_extract/
-            cp -r /tmp/robovm_extract/META-INF/robovm/ios/libs/* "$TARGET_DIR/"
+          unzip -o "$JAR_FILE" "META-INF/robovm/ios/libs/*" -d /tmp/robovm_extract/
+          cp -r /tmp/robovm_extract/META-INF/robovm/ios/libs/* "$TARGET_DIR/"
           fi
 
           # Verify framework extraction
-          ls -la "$TARGET_DIR"
+          ls -la "$TARGET_DIR" 
 
       - name: Build Unsigned iOS App
         run: |
