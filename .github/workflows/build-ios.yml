@@ -35,7 +35,7 @@ jobs:
           ./gradlew pack
           ./gradlew :ios:createIPA \
             -Probovm.iosSkipSigning=true \
-            -Probovm.archs=thumb64 \
+            -Probovm.archs=arm64 \
             -Probovm.device.name="iPhone"
 
       - name: Package into Sideloadable IPA
