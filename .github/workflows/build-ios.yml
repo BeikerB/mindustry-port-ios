@@ -38,27 +38,31 @@ jobs:
           # 2. Fetch prebuilt static C++ library (libarc-freetype.a)
           curl -L -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Mindustry/master/ios/libs/libarc-freetype.a"
 
-          # 3. Download RoboVM Distro to get MetalANGLEKit
-          echo "Downloading RoboVM distribution..."
-          curl -L -o /tmp/robovm-dist.tar.gz "https://github.com/MobiDevelop/robovm/releases/download/robovm-2.3.20/robovm-2.3.20.tar.gz" || \
-          curl -L -o /tmp/robovm-dist.tar.gz "https://github.com/MobiDevelop/robovm/releases/download/robovm-2.3.19/robovm-2.3.19.tar.gz"
+          # 3. Download RoboVM CocoaTouch artifact from Maven Central
+          echo "Downloading RoboVM CocoaTouch artifact..."
+          curl -L -o /tmp/robovm-cocoatouch.jar "https://repo1.maven.org/maven2/com/mobidevelop/robovm/robovm-cocoatouch/2.3.20/robovm-cocoatouch-2.3.20.jar"
 
-          # 4. Extract MetalANGLEKit.framework into Mindustry/ios/libs/Frameworks
-          mkdir -p /tmp/robovm_out
-          tar -xzf /tmp/robovm-dist.tar.gz -C /tmp/robovm_out/
-          
-          # Find and copy MetalANGLEKit.framework
-          find /tmp/robovm_out -name "MetalANGLEKit.framework" -type d -exec cp -R {} Mindustry/ios/libs/Frameworks/ \;
+          # 4. Extract MetalANGLEKit.framework from the JAR
+          mkdir -p /tmp/cocoatouch_out
+          unzip -q /tmp/robovm-cocoatouch.jar -d /tmp/cocoatouch_out/
 
-          # Also mirror to default RoboVM cache locations so clang finds it regardless of path
+          # Copy MetalANGLEKit.framework to Mindustry libs
+          find /tmp/cocoatouch_out -name "MetalANGLEKit.framework" -type d -exec cp -R {} Mindustry/ios/libs/Frameworks/ \;
+
+          # 5. Mirror to expected RoboVM cache path for clang++
           CACHE_DIR="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
           mkdir -p "$CACHE_DIR"
           cp -R Mindustry/ios/libs/Frameworks/* "$CACHE_DIR/" || true
 
-          # Verify extraction
+          # 6. Verify extraction
           echo "Frameworks setup summary:"
           ls -la Mindustry/ios/libs/
           ls -la Mindustry/ios/libs/Frameworks/
+
+          if [ ! -d "Mindustry/ios/libs/Frameworks/MetalANGLEKit.framework" ]; then
+            echo "ERROR: MetalANGLEKit.framework failed to extract!"
+            exit 1
+          fi
 
       - name: Build Unsigned iOS App
         run: |
