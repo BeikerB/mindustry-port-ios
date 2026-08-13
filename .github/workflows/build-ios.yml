@@ -32,7 +32,7 @@ jobs:
 
       - name: Resolve Dependencies & Extract MetalANGLEKit
         run: |
-          # 1. Target directory expected by clang++
+          # 1. Define target directories
           TARGET_CACHE="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
           mkdir -p "$TARGET_CACHE"
           mkdir -p Mindustry/ios/libs/Frameworks
@@ -41,57 +41,64 @@ jobs:
           echo "Copying static libraries..."
           find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
 
-          # 3. Force Gradle to download and resolve all iOS native dependencies
+          # 3. Force Gradle to resolve all dependencies in Mindustry
           echo "Resolving iOS project dependencies in Mindustry..."
           cd Mindustry
           ./gradlew :ios:dependencies || true
           cd ..
 
-          # 4. Search all caches (~/.gradle, ~/.m2, ~/.robovm) for existing framework directories
-          echo "Scanning filesystem for uncompressed frameworks..."
-          find ~/.gradle ~/.m2 ~/.robovm -type d \( -name "*.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
-            echo "Found framework directory: $FW"
+          # 4. Search Gradle cache for MetalANGLE / MetalANGLEKit
+          echo "Searching for MetalANGLE frameworks in caches..."
+          find ~/.gradle/caches ~/.m2 -type d \( -name "MetalANGLEKit.framework" -o -name "MetalANGLE.framework" \) 2>/dev/null | while read FW; do
+            echo "Found framework: $FW"
             cp -R "$FW" "$TARGET_CACHE/" || true
             cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
           done
 
-          # 5. Unpack all RoboVM & Arc JARs found in Gradle/Maven caches
-          echo "Scanning JAR files in caches for embedded frameworks..."
-          find ~/.gradle ~/.m2 ~/.robovm Arc Mindustry -name "*.jar" 2>/dev/null | while read JAR; do
-            if unzip -l "$JAR" 2>/dev/null | grep -iE "framework|robovm|MetalANGLE"; then
-              echo "Extracting matching JAR: $JAR"
+          # 5. Extract all RoboVM JARs found in Gradle cache
+          find ~/.gradle/caches ~/.m2 -name "*.jar" 2>/dev/null | while read JAR; do
+            if unzip -l "$JAR" 2>/dev/null | grep -q "MetalANGLE"; then
+              echo "Extracting MetalANGLE JAR: $JAR"
               TMP_DIR=$(mktemp -d)
               unzip -o -q "$JAR" -d "$TMP_DIR"
               
               find "$TMP_DIR" -type d \( -name "*.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
-                echo "--> Extracted framework: $(basename "$FW")"
                 cp -R "$FW" "$TARGET_CACHE/" || true
                 cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
               done
-              
-              if [ -d "$TMP_DIR/META-INF/robovm" ]; then
-                cp -R "$TMP_DIR/META-INF/robovm/"* "$TARGET_CACHE/" 2>/dev/null || true
-              fi
-              
               rm -rf "$TMP_DIR"
             fi
           done
 
+          # 6. Fallback: If MetalANGLEKit is still missing, pull from JitPack / GitHub release
+          if [ ! -d "$TARGET_CACHE/MetalANGLEKit.framework" ] && [ ! -d "Mindustry/ios/libs/Frameworks/MetalANGLEKit.framework" ]; then
+            echo "Framework not found in cache. Downloading prebuilt Arc backend JAR..."
+            curl -L -f -o /tmp/backend-robovm.jar "https://repo.jitpack.io/com/github/Anuken/Arc/backend-robovm/v1.0/backend-robovm-v1.0.jar" || true
+            if [ -f "/tmp/backend-robovm.jar" ]; then
+              TMP_DIR=$(mktemp -d)
+              unzip -o -q /tmp/backend-robovm.jar -d "$TMP_DIR"
+              find "$TMP_DIR" -type d \( -name "*.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
+                cp -R "$FW" "$TARGET_CACHE/" || true
+                cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
+              done
+              rm -rf "$TMP_DIR"
+            fi
+          fi
+
           # -------------------------------------------------------------
-          # 6. FAIL-FAST CHECKER: Verify frameworks exist before building
+          # 7. Verification / Sanity Check
           # -------------------------------------------------------------
           echo "=== Target Cache Contents ==="
           ls -la "$TARGET_CACHE" || true
+          echo "=== Mindustry Frameworks Contents ==="
+          ls -la Mindustry/ios/libs/Frameworks/ || true
 
-          if [ -z "$(ls -A "$TARGET_CACHE")" ]; then
-            echo "---------------------------------------------------------"
-            echo "CRITICAL ERROR: No RoboVM frameworks were found!"
-            echo "Stopping build to prevent waiting for clang failure."
-            echo "---------------------------------------------------------"
+          if [ ! -d "$TARGET_CACHE/MetalANGLEKit.framework" ] && [ ! -d "$TARGET_CACHE/MetalANGLE.framework" ]; then
+            echo "CRITICAL ERROR: MetalANGLEKit.framework was not found in $TARGET_CACHE!"
             exit 1
           fi
 
-          echo "SUCCESS: Native frameworks found! Proceeding to build."
+          echo "SUCCESS: MetalANGLEKit framework successfully installed in cache!"
 
       - name: Build Unsigned iOS App
         run: |
