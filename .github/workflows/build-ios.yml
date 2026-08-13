@@ -30,13 +30,13 @@ jobs:
           chmod +x Mindustry/gradlew
           chmod +x Arc/gradlew || true
 
-
       - name: Resolve Dependencies & Extract MetalANGLEKit
         run: |
           # 1. Target directory expected by clang++
           TARGET_CACHE="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
           mkdir -p "$TARGET_CACHE"
           mkdir -p Mindustry/ios/libs/Frameworks
+
           # 2. Copy static libraries (.a) from Arc
           echo "Copying static libraries..."
           find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
@@ -47,26 +47,35 @@ jobs:
           ./gradlew :ios:dependencies || true
           cd ..
 
-          # 4. Search entire Gradle cache and workspace for MetalANGLEKit or any RoboVM frameworks
-          echo "Searching for frameworks in Gradle cache..."
-          find ~/.gradle/caches -type d \( -name "MetalANGLEKit.framework" -o -name "MetalANGLE.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
-            echo "Found Framework in cache: $FW"
+          # 4. Search all caches (~/.gradle, ~/.m2, ~/.robovm) for existing framework directories
+          echo "Scanning filesystem for uncompressed frameworks..."
+          find ~/.gradle ~/.m2 ~/.robovm -type d \( -name "*.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
+            echo "Found framework directory: $FW"
             cp -R "$FW" "$TARGET_CACHE/" || true
             cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
           done
 
-          # 5. Extract any JARs in Gradle cache containing META-INF/robovm/ios/libs
-          find ~/.gradle/caches -name "*.jar" | while read JAR; do
-            if unzip -l "$JAR" 2>/dev/null | grep -q "robovm/ios"; then
-              echo "Extracting RoboVM native JAR: $JAR"
+          # 5. Unpack all RoboVM & Arc JARs found in Gradle/Maven caches
+          echo "Scanning JAR files in caches for embedded frameworks..."
+          find ~/.gradle ~/.m2 ~/.robovm Arc Mindustry -name "*.jar" 2>/dev/null | while read JAR; do
+            # Check if JAR contains frameworks or robovm files
+            if unzip -l "$JAR" 2>/dev/null | grep -iE "framework|robovm|MetalANGLE"; then
+              echo "Extracting matching JAR: $JAR"
               TMP_DIR=$(mktemp -d)
               unzip -o -q "$JAR" -d "$TMP_DIR"
               
-              # Copy embedded frameworks directly to target paths
+              # Copy any found framework bundles
               find "$TMP_DIR" -type d \( -name "*.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
+                echo "--> Extracted framework: $(basename "$FW")"
                 cp -R "$FW" "$TARGET_CACHE/" || true
                 cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
               done
+              
+              # Copy any files inside META-INF/robovm/ directly to cache
+              if [ -d "$TMP_DIR/META-INF/robovm" ]; then
+                cp -R "$TMP_DIR/META-INF/robovm/"* "$TARGET_CACHE/" 2>/dev/null || true
+              fi
+              
               rm -rf "$TMP_DIR"
             fi
           done
@@ -79,22 +88,13 @@ jobs:
 
           if [ -z "$(ls -A "$TARGET_CACHE")" ]; then
             echo "---------------------------------------------------------"
-            echo "CRITICAL ERROR: No RoboVM frameworks were found in Gradle cache!"
+            echo "CRITICAL ERROR: No RoboVM frameworks were found!"
             echo "Stopping build to prevent waiting for clang failure."
             echo "---------------------------------------------------------"
             exit 1
           fi
 
           echo "SUCCESS: Native frameworks found! Proceeding to build."
-
-      - name: Build Unsigned iOS App
-        run: |
-          cd Mindustry
-          ./gradlew pack
-          ./gradlew :ios:createIPA \
-            -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64 \
-            -Probovm.device.name="iPhone"
 
       - name: Package into Sideloadable IPA
         run: |
