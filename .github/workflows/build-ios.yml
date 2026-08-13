@@ -46,14 +46,20 @@ jobs:
           # List copied libraries to verify libarc-freetype.a is present
           ls -la Mindustry/ios/libs/
 
+      - name: Install MetalANGLEKit Framework
+        run: |
+          # Download and install MetalANGLEKit if needed
+          # Or ensure it's available in the RoboVM cache
+          mkdir -p ~/.robovm/cache/ios/arm64/release/
+
       - name: Build Unsigned iOS App
         run: |
           cd Mindustry
           ./gradlew pack
           ./gradlew :ios:createIPA \
-            -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64 \
-            -Probovm.device.name="iPhone"
+          -Probovm.iosSkipSigning=true \
+          -Probovm.archs=arm64 \
+          -Probovm.device.name="iPhone"
 
       - name: Package into Sideloadable IPA
         run: |
