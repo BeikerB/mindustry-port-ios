@@ -29,28 +29,18 @@ jobs:
         run: |
           chmod +x Mindustry/gradlew
           chmod +x Arc/gradlew || true
-          # 1. Fetch prebuilt static C++ library (libarc-freetype.a)
+
+      - name: Download Native Libraries
+        run: |
+          # Fetch required libarc-freetype.a native library
           mkdir -p Mindustry/ios/libs/
           curl -L -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Mindustry/master/ios/libs/libarc-freetype.a"
 
-          # 2. Build local Arc backend jar
+      - name: Publish Arc to Local Maven
+        run: |
           cd Arc
-          ./gradlew :backends:backend-robovm:jar
-          cd ..
-
-          # 3. Extract the frameworks (MetalANGLEKit, etc.) directly into the cache directory RoboVM expects
-          TARGET_DIR="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF[...]"
-          mkdir -p "$TARGET_DIR"
-          mkdir -p /tmp/robovm_extract/
-
-          JAR_FILE=$(find Arc/backends/backend-robovm/build/libs -name "*.jar" | head -n 1)
-          if [ -n "$JAR_FILE" ]; then
-          unzip -o "$JAR_FILE" "META-INF/robovm/ios/libs/*" -d /tmp/robovm_extract/
-          cp -r /tmp/robovm_extract/META-INF/robovm/ios/libs/* "$TARGET_DIR/"
-          fi
-
-          # Verify framework extraction
-          ls -la "$TARGET_DIR" 
+          # Publish Arc artifacts locally so Mindustry/RoboVM can resolve backend-robovm resources
+          ./gradlew publishToMavenLocal -x test || ./gradlew install -x test || true
 
       - name: Build Unsigned iOS App
         run: |
