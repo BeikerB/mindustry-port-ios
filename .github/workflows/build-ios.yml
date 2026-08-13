@@ -30,16 +30,16 @@ jobs:
           chmod +x Mindustry/gradlew
           chmod +x Arc/gradlew || true
 
-      - name: Download Native Libraries
+      - name: Fetch Static Libraries
         run: |
-          # Fetch required libarc-freetype.a native library
+          # Fetch prebuilt libarc-freetype.a required by the iOS build
           mkdir -p Mindustry/ios/libs/
           curl -L -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Mindustry/master/ios/libs/libarc-freetype.a"
 
-      - name: Publish Arc to Local Maven
+      - name: Publish Arc locally to Maven
         run: |
           cd Arc
-          # Publish Arc artifacts locally so Mindustry/RoboVM can resolve backend-robovm resources
+          # Publishing Arc artifacts locally allows RoboVM to locate and extract embedded native frameworks
           ./gradlew publishToMavenLocal -x test || ./gradlew install -x test || true
 
       - name: Build Unsigned iOS App
