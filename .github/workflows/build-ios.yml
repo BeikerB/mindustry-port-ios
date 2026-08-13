@@ -13,11 +13,12 @@ jobs:
         with:
           path: Mindustry
 
-      - name: Checkout Arc Framework
+      - name: Checkout Arc Framework (with LFS for Frameworks)
         uses: actions/checkout@v4
         with:
           repository: Anuken/Arc
           path: Arc
+          lfs: true
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -30,26 +31,31 @@ jobs:
           chmod +x Mindustry/gradlew
           chmod +x Arc/gradlew || true
 
-      - name: Fetch Static Libraries and Frameworks
+      - name: Fetch Static Libraries and Prepare Frameworks
         run: |
           # 1. Fetch prebuilt libarc-freetype.a required by Mindustry
           mkdir -p Mindustry/ios/libs/
           curl -L -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Mindustry/master/ios/libs/libarc-freetype.a"
-          
+
           # 2. Build local backend-robovm JAR inside Arc
           cd Arc
           ./gradlew :backends:backend-robovm:jar
           cd ..
 
-          # 3. Create the exact path clang++ searches for frameworks
+          # 3. Create target directory where RoboVM/clang++ expects MetalANGLEKit.framework
           ROBOVM_FRAMEWORK_DIR="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
           mkdir -p "$ROBOVM_FRAMEWORK_DIR"
 
-          # 4. Download and unzip MetalANGLEKit framework into the exact RoboVM search directory
-          curl -L -o /tmp/MetalANGLEKit.framework.zip "https://raw.githubusercontent.com/Anuken/Arc/master/backends/backend-robovm/libs/MetalANGLEKit.framework.zip" || true
-          
-          if [ -f /tmp/MetalANGLEKit.framework.zip ]; then
-            unzip -o /tmp/MetalANGLEKit.framework.zip -d "$ROBOVM_FRAMEWORK_DIR/"
+          # 4. Extract frameworks directly from the compiled backend-robovm-1.0.jar
+          JAR_FILE=$(find Arc/backends/backend-robovm/build/libs -name "*.jar" | head -n 1)
+          if [ -n "$JAR_FILE" ]; then
+            mkdir -p /tmp/jar_contents
+            unzip -o "$JAR_FILE" -d /tmp/jar_contents/
+            
+            # Copy all extracted iOS frameworks into the target cache folder
+            if [ -d "/tmp/jar_contents/META-INF/robovm/ios/libs" ]; then
+              cp -r /tmp/jar_contents/META-INF/robovm/ios/libs/* "$ROBOVM_FRAMEWORK_DIR/"
+            fi
           fi
 
           # Verify framework contents
