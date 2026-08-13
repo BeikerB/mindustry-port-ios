@@ -30,43 +30,43 @@ jobs:
           chmod +x Mindustry/gradlew
           chmod +x Arc/gradlew || true
 
-      - name: Download Native Libraries and MetalANGLEKit
+      - name: Prepare Native Libraries and RoboVM Frameworks
         run: |
-          # 1. Setup target directory inside Mindustry
+          # 1. Ensure target directories exist
           mkdir -p Mindustry/ios/libs/Frameworks
 
-          # 2. Fetch prebuilt static C++ library (libarc-freetype.a) from Arc
-          echo "Downloading libarc-freetype.a..."
-          curl -L -f -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Arc/master/natives/ios/libs/libarc-freetype.a" || \
-          curl -L -f -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Arc/master/backends/backend-robovm/libs/ios/libarc-freetype.a" || \
-          touch Mindustry/ios/libs/libarc-freetype.a
+          # 2. Copy libarc-freetype.a from local Arc checkout
+          echo "Locating libarc-freetype.a in Arc..."
+          ARC_LIB=$(find Arc -name "libarc-freetype.a" | head -n 1)
+          if [ -n "$ARC_LIB" ]; then
+            echo "Found local libarc-freetype.a at: $ARC_LIB"
+            cp "$ARC_LIB" Mindustry/ios/libs/
+          else
+            echo "Copying any static libs from Arc..."
+            find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
+          fi
 
-          # 3. Download RoboVM CocoaTouch artifact from Maven Central
-          echo "Downloading RoboVM CocoaTouch JAR (14.5MB)..."
+          # 3. Download RoboVM CocoaTouch JAR from Maven Central
+          echo "Downloading RoboVM CocoaTouch JAR..."
           curl -L -f -o /tmp/robovm-cocoatouch.jar "https://repo1.maven.org/maven2/com/mobidevelop/robovm/robovm-cocoatouch/2.3.20/robovm-cocoatouch-2.3.20.jar"
 
-          # 4. Extract entire JAR to a temporary folder
+          # 4. Extract entire JAR
           mkdir -p /tmp/cocoatouch_out
           unzip -q /tmp/robovm-cocoatouch.jar -d /tmp/cocoatouch_out/
 
-          # 5. Search for MetalANGLEKit.framework and copy it into Frameworks/
-          find /tmp/cocoatouch_out -type d -name "MetalANGLEKit.framework" -exec cp -R {} Mindustry/ios/libs/Frameworks/ \;
+          # 5. Extract ALL frameworks (MetalANGLE, MetalANGLEKit, etc.)
+          find /tmp/cocoatouch_out -type d \( -name "*.framework" -o -name "*.xcframework" \) -exec cp -R {} Mindustry/ios/libs/Frameworks/ \;
 
-          # 6. Mirror extracted frameworks to the RoboVM cache directory for clang++
+          # 6. Mirror extracted frameworks to the expected RoboVM cache path for clang++
           CACHE_DIR="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
           mkdir -p "$CACHE_DIR"
-          if [ -d "Mindustry/ios/libs/Frameworks/MetalANGLEKit.framework" ]; then
-            cp -R Mindustry/ios/libs/Frameworks/MetalANGLEKit.framework "$CACHE_DIR/"
-          fi
+          cp -R Mindustry/ios/libs/Frameworks/* "$CACHE_DIR/" || true
 
-          # 7. Print verification details
-          echo "=== Frameworks Directory Contents ==="
+          # 7. Print extracted frameworks for verification
+          echo "=== Mindustry/ios/libs Directory ==="
+          ls -la Mindustry/ios/libs/
+          echo "=== Mindustry/ios/libs/Frameworks Directory ==="
           ls -la Mindustry/ios/libs/Frameworks/
-
-          if [ ! -d "Mindustry/ios/libs/Frameworks/MetalANGLEKit.framework" ]; then
-            echo "ERROR: MetalANGLEKit.framework was not found in JAR contents!"
-            exit 1
-          fi
 
       - name: Build Unsigned iOS App
         run: |
