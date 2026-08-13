@@ -30,18 +30,30 @@ jobs:
           chmod +x Mindustry/gradlew
           chmod +x Arc/gradlew || true
 
-      - name: Fetch Static Libraries
+      - name: Fetch Static Libraries and Frameworks
         run: |
-          # Fetch prebuilt libarc-freetype.a required by the iOS build
+          # 1. Fetch prebuilt libarc-freetype.a required by Mindustry
           mkdir -p Mindustry/ios/libs/
           curl -L -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Mindustry/master/ios/libs/libarc-freetype.a"
-
-      - name: Build and Publish Arc locally to Maven
-        run: |
+          
+          # 2. Build local backend-robovm JAR inside Arc
           cd Arc
-          # Build backend-robovm explicitly so embedded frameworks are staged
-          ./gradlew :backends:backend-robovm:build -x test
-          ./gradlew publishToMavenLocal -x test || ./gradlew install -x test
+          ./gradlew :backends:backend-robovm:jar
+          cd ..
+
+          # 3. Create the exact path clang++ searches for frameworks
+          ROBOVM_FRAMEWORK_DIR="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
+          mkdir -p "$ROBOVM_FRAMEWORK_DIR"
+
+          # 4. Download and unzip MetalANGLEKit framework into the exact RoboVM search directory
+          curl -L -o /tmp/MetalANGLEKit.framework.zip "https://raw.githubusercontent.com/Anuken/Arc/master/backends/backend-robovm/libs/MetalANGLEKit.framework.zip" || true
+          
+          if [ -f /tmp/MetalANGLEKit.framework.zip ]; then
+            unzip -o /tmp/MetalANGLEKit.framework.zip -d "$ROBOVM_FRAMEWORK_DIR/"
+          fi
+
+          # Verify framework contents
+          ls -la "$ROBOVM_FRAMEWORK_DIR"
 
       - name: Build Unsigned iOS App
         run: |
