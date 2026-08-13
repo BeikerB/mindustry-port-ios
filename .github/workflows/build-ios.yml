@@ -30,54 +30,44 @@ jobs:
           chmod +x Mindustry/gradlew
           chmod +x Arc/gradlew || true
 
-      - name: Extract Embedded Frameworks to Local Directory
+      - name: Download Native Libraries and MetalANGLEKit
         run: |
-          # 1. Fetch static libarc-freetype.a
+          # 1. Setup target directory inside Mindustry
           mkdir -p Mindustry/ios/libs/Frameworks
+
+          # 2. Fetch prebuilt static C++ library (libarc-freetype.a)
           curl -L -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Mindustry/master/ios/libs/libarc-freetype.a"
 
-          # 2. Build backend-robovm JAR inside Arc
-          cd Arc
-          ./gradlew :backends:backend-robovm:jar
-          cd ..
+          # 3. Download RoboVM Distro to get MetalANGLEKit
+          echo "Downloading RoboVM distribution..."
+          curl -L -o /tmp/robovm-dist.tar.gz "https://github.com/MobiDevelop/robovm/releases/download/robovm-2.3.20/robovm-2.3.20.tar.gz" || \
+          curl -L -o /tmp/robovm-dist.tar.gz "https://github.com/MobiDevelop/robovm/releases/download/robovm-2.3.19/robovm-2.3.19.tar.gz"
 
-          # 3. Extract the JAR into a temporary location
-          JAR_FILE=$(find Arc/backends/backend-robovm/build/libs -name "*.jar" | head -n 1)
-          if [ -n "$JAR_FILE" ]; then
-            echo "Found JAR: $JAR_FILE"
-            mkdir -p /tmp/jar_out
-            unzip -o "$JAR_FILE" -d /tmp/jar_out
-            
-            # Find any .framework directories inside the JAR and copy them to Mindustry/ios/libs/Frameworks/
-            find /tmp/jar_out -name "*.framework" -type d -exec cp -R {} Mindustry/ios/libs/Frameworks/ \;
-            
-            echo "JAR extraction completed"
-          else
-            echo "ERROR: backend-robovm JAR not found!"
-            exit 1
-          fi
-
-          # 4. Verify MetalANGLEKit.framework was extracted
-          echo "Extracted Frameworks:"
-          ls -laR Mindustry/ios/libs/Frameworks/
+          # 4. Extract MetalANGLEKit.framework into Mindustry/ios/libs/Frameworks
+          mkdir -p /tmp/robovm_out
+          tar -xzf /tmp/robovm-dist.tar.gz -C /tmp/robovm_out/
           
-          # Check if MetalANGLEKit exists
-          if [ ! -d "Mindustry/ios/libs/Frameworks/MetalANGLEKit.framework" ]; then
-            echo "WARNING: MetalANGLEKit.framework not found in JAR extraction"
-            echo "Checking JAR contents for frameworks:"
-            unzip -l "$JAR_FILE" | grep -i "\.framework" || echo "No .framework files found in JAR"
-          fi
+          # Find and copy MetalANGLEKit.framework
+          find /tmp/robovm_out -name "MetalANGLEKit.framework" -type d -exec cp -R {} Mindustry/ios/libs/Frameworks/ \;
+
+          # Also mirror to default RoboVM cache locations so clang finds it regardless of path
+          CACHE_DIR="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
+          mkdir -p "$CACHE_DIR"
+          cp -R Mindustry/ios/libs/Frameworks/* "$CACHE_DIR/" || true
+
+          # Verify extraction
+          echo "Frameworks setup summary:"
+          ls -la Mindustry/ios/libs/
+          ls -la Mindustry/ios/libs/Frameworks/
 
       - name: Build Unsigned iOS App
         run: |
           cd Mindustry
-          # Pass the local Frameworks directory directly to RoboVM via -Probovm.frameworkPaths
           ./gradlew pack
           ./gradlew :ios:createIPA \
             -Probovm.iosSkipSigning=true \
             -Probovm.archs=arm64 \
-            -Probovm.device.name="iPhone" \
-            -Probovm.frameworkPaths="$(pwd)/ios/libs/Frameworks"
+            -Probovm.device.name="iPhone"
 
       - name: Package into Sideloadable IPA
         run: |
