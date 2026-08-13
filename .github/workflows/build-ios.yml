@@ -75,6 +75,63 @@ jobs:
 
           echo "SUCCESS: MetalANGLEKit framework found! Proceeding to build."
 
+      - name: Resolve Dependencies & Extract MetalANGLEKit
+        run: |
+          # 1. Target directory expected by clang++
+          TARGET_CACHE="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
+          mkdir -p "$TARGET_CACHE"
+          mkdir -p Mindustry/ios/libs/Frameworks
+
+          # 2. Copy static libraries (.a) from Arc
+          echo "Copying static libraries..."
+          find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
+
+          # 3. Force Gradle to download and resolve all iOS native dependencies
+          echo "Resolving iOS project dependencies in Mindustry..."
+          cd Mindustry
+          ./gradlew :ios:dependencies || true
+          cd ..
+
+          # 4. Search entire Gradle cache and workspace for MetalANGLEKit or any RoboVM frameworks
+          echo "Searching for frameworks in Gradle cache..."
+          find ~/.gradle/caches -type d \( -name "MetalANGLEKit.framework" -o -name "MetalANGLE.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
+            echo "Found Framework in cache: $FW"
+            cp -R "$FW" "$TARGET_CACHE/" || true
+            cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
+          done
+
+          # 5. Extract any JARs in Gradle cache containing META-INF/robovm/ios/libs
+          find ~/.gradle/caches -name "*.jar" | while read JAR; do
+            if unzip -l "$JAR" 2>/dev/null | grep -q "robovm/ios"; then
+              echo "Extracting RoboVM native JAR: $JAR"
+              TMP_DIR=$(mktemp -d)
+              unzip -o -q "$JAR" -d "$TMP_DIR"
+              
+              # Copy embedded frameworks directly to target paths
+              find "$TMP_DIR" -type d \( -name "*.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
+                cp -R "$FW" "$TARGET_CACHE/" || true
+                cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
+              done
+              rm -rf "$TMP_DIR"
+            fi
+          done
+
+          # -------------------------------------------------------------
+          # 6. FAIL-FAST CHECKER: Verify frameworks exist before building
+          # -------------------------------------------------------------
+          echo "=== Target Cache Contents ==="
+          ls -la "$TARGET_CACHE" || true
+
+          if [ -z "$(ls -A "$TARGET_CACHE")" ]; then
+            echo "---------------------------------------------------------"
+            echo "CRITICAL ERROR: No RoboVM frameworks were found in Gradle cache!"
+            echo "Stopping build to prevent waiting for clang failure."
+            echo "---------------------------------------------------------"
+            exit 1
+          fi
+
+          echo "SUCCESS: Native frameworks found! Proceeding to build."
+
       - name: Build Unsigned iOS App
         run: |
           cd Mindustry
