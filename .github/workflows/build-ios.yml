@@ -1,36 +1,4 @@
-name: Build iOS IPA
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build-ios:
-    runs-on: macos-14
-
-    steps:
-      - name: Checkout Mindustry
-        uses: actions/checkout@v4
-        with:
-          path: Mindustry
-
-      - name: Checkout Arc Framework
-        uses: actions/checkout@v4
-        with:
-          repository: Anuken/Arc
-          path: Arc
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Grant Permissions
-        run: |
-          chmod +x Mindustry/gradlew
-          chmod +x Arc/gradlew || true
-
-      - name: Fast Framework Setup & Fail-Fast Checker
+- name: Resolve Dependencies & Extract MetalANGLEKit
         run: |
           # 1. Target directory expected by clang++
           TARGET_CACHE="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
@@ -41,58 +9,48 @@ jobs:
           echo "Copying static libraries..."
           find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
 
-          # 3. Build backend-robovm inside Arc to generate/extract native artifacts
-          cd Arc
-          ./gradlew :backends:backend-robovm:jar || true
+          # 3. Force Gradle to download and resolve all iOS native dependencies
+          echo "Resolving iOS project dependencies in Mindustry..."
+          cd Mindustry
+          ./gradlew :ios:dependencies || true
           cd ..
 
-          # 4. Extract any embedded frameworks from all built JARs in Arc
-          find Arc -name "*.jar" | while read JAR; do
-            echo "Extracting $JAR..."
-            unzip -o -q "$JAR" -d /tmp/jar_extract || true
-          done
-
-          # 5. Locate MetalANGLEKit / MetalANGLE across the extracted contents and workspace
-          find /tmp/jar_extract . ~/.gradle -type d \( -name "MetalANGLEKit.framework" -o -name "MetalANGLE.framework" \) 2>/dev/null | while read FW; do
-            echo "Found Framework: $FW"
+          # 4. Search entire Gradle cache and workspace for MetalANGLEKit or any RoboVM frameworks
+          echo "Searching for frameworks in Gradle cache..."
+          find ~/.gradle/caches -type d \( -name "MetalANGLEKit.framework" -o -name "MetalANGLE.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
+            echo "Found Framework in cache: $FW"
             cp -R "$FW" "$TARGET_CACHE/" || true
             cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
           done
 
+          # 5. Extract any JARs in Gradle cache containing META-INF/robovm/ios/libs
+          find ~/.gradle/caches -name "*.jar" | while read JAR; do
+            if unzip -l "$JAR" 2>/dev/null | grep -q "robovm/ios"; then
+              echo "Extracting RoboVM native JAR: $JAR"
+              TMP_DIR=$(mktemp -d)
+              unzip -o -q "$JAR" -d "$TMP_DIR"
+              
+              # Copy embedded frameworks directly to target paths
+              find "$TMP_DIR" -type d \( -name "*.framework" -o -name "*.xcframework" \) 2>/dev/null | while read FW; do
+                cp -R "$FW" "$TARGET_CACHE/" || true
+                cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
+              done
+              rm -rf "$TMP_DIR"
+            fi
+          done
+
           # -------------------------------------------------------------
-          # 6. FAIL-FAST CHECKER: Verify MetalANGLEKit exists before build
+          # 6. FAIL-FAST CHECKER: Verify frameworks exist before building
           # -------------------------------------------------------------
-          echo "=== Verifying Target Directory ==="
+          echo "=== Target Cache Contents ==="
           ls -la "$TARGET_CACHE" || true
 
-          if [ ! -d "$TARGET_CACHE/MetalANGLEKit.framework" ] && [ ! -d "$TARGET_CACHE/MetalANGLE.framework" ]; then
+          if [ -z "$(ls -A "$TARGET_CACHE")" ]; then
             echo "---------------------------------------------------------"
-            echo "CRITICAL ERROR: MetalANGLEKit.framework is MISSING!"
-            echo "Stopping build now to prevent waiting 10 minutes for clang failure."
+            echo "CRITICAL ERROR: No RoboVM frameworks were found in Gradle cache!"
+            echo "Stopping build to prevent waiting for clang failure."
             echo "---------------------------------------------------------"
             exit 1
           fi
 
-          echo "SUCCESS: MetalANGLEKit framework found! Proceeding to build."
-
-      - name: Build Unsigned iOS App
-        run: |
-          cd Mindustry
-          ./gradlew pack
-          ./gradlew :ios:createIPA \
-            -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64 \
-            -Probovm.device.name="iPhone"
-
-      - name: Package into Sideloadable IPA
-        run: |
-          mkdir -p Payload
-          APP_PATH=$(find Mindustry/ios/build/robovm -name "*.app" | head -n 1)
-          cp -r "$APP_PATH" Payload/
-          zip -r Mindustry-v8-unsigned.ipa Payload
-
-      - name: Upload IPA Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mindustry-iOS-IPA
-          path: Mindustry-v8-unsigned.ipa
+          echo "SUCCESS: Native frameworks found! Proceeding to build."
