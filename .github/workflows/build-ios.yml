@@ -30,47 +30,50 @@ jobs:
           chmod +x Mindustry/gradlew
           chmod +x Arc/gradlew || true
 
-      - name: Prepare Native Libraries and RoboVM Frameworks
+      - name: Fast Framework Setup & Fail-Fast Checker
         run: |
-          # 1. Ensure target directories exist
+          # 1. Target directory expected by clang++
+          TARGET_CACHE="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
+          mkdir -p "$TARGET_CACHE"
           mkdir -p Mindustry/ios/libs/Frameworks
 
-          # 2. Copy static libraries (.a) from Arc checkout
-          echo "Copying static libraries from Arc..."
+          # 2. Copy static libraries (.a) from Arc
+          echo "Copying static libraries..."
           find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
 
-          # 3. Build Arc's backend-robovm module to trigger native framework extraction
+          # 3. Build backend-robovm inside Arc to generate/extract native artifacts
           cd Arc
-          ./gradlew :backends:backend-robovm:build -x test || true
+          ./gradlew :backends:backend-robovm:jar || true
           cd ..
 
-          # 4. Search for MetalANGLE / MetalANGLEKit across the ENTIRE runner workspace
-          echo "Searching for MetalANGLE frameworks in workspace and cache..."
-          FOUND_FRAMEWORKS=$(find . ~/.gradle ~/.m2 -type d \( -name "MetalANGLEKit.framework" -o -name "MetalANGLE.framework" \) 2>/dev/null)
+          # 4. Extract any embedded frameworks from all built JARs in Arc
+          find Arc -name "*.jar" | while read JAR; do
+            echo "Extracting $JAR..."
+            unzip -o -q "$JAR" -d /tmp/jar_extract || true
+          done
 
-          if [ -n "$FOUND_FRAMEWORKS" ]; then
-            echo "Found framework at:"
-            echo "$FOUND_FRAMEWORKS"
-            
-            # Copy found frameworks into Mindustry/ios/libs/Frameworks
-            echo "$FOUND_FRAMEWORKS" | while read -r FW_PATH; do
-              cp -R "$FW_PATH" Mindustry/ios/libs/Frameworks/
-            done
+          # 5. Locate MetalANGLEKit / MetalANGLE across the extracted contents and workspace
+          find /tmp/jar_extract . ~/.gradle -type d \( -name "MetalANGLEKit.framework" -o -name "MetalANGLE.framework" \) 2>/dev/null | while read FW; do
+            echo "Found Framework: $FW"
+            cp -R "$FW" "$TARGET_CACHE/" || true
+            cp -R "$FW" Mindustry/ios/libs/Frameworks/ || true
+          done
+
+          # -------------------------------------------------------------
+          # 6. FAIL-FAST CHECKER: Verify MetalANGLEKit exists before build
+          # -------------------------------------------------------------
+          echo "=== Verifying Target Directory ==="
+          ls -la "$TARGET_CACHE" || true
+
+          if [ ! -d "$TARGET_CACHE/MetalANGLEKit.framework" ] && [ ! -d "$TARGET_CACHE/MetalANGLE.framework" ]; then
+            echo "---------------------------------------------------------"
+            echo "CRITICAL ERROR: MetalANGLEKit.framework is MISSING!"
+            echo "Stopping build now to prevent waiting 10 minutes for clang failure."
+            echo "---------------------------------------------------------"
+            exit 1
           fi
 
-          # 5. Mirror frameworks to ALL search paths clang++ expects
-          TARGET_PATH1="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
-          mkdir -p "$TARGET_PATH1"
-
-          if [ -d "Mindustry/ios/libs/Frameworks" ]; then
-            cp -R Mindustry/ios/libs/Frameworks/* "$TARGET_PATH1/" || true
-          fi
-
-          # 6. Print summary
-          echo "=== Frameworks in Mindustry Project ==="
-          ls -la Mindustry/ios/libs/Frameworks/ || true
-          echo "=== Frameworks in RoboVM Target Cache ==="
-          ls -la "$TARGET_PATH1" || true
+          echo "SUCCESS: MetalANGLEKit framework found! Proceeding to build."
 
       - name: Build Unsigned iOS App
         run: |
