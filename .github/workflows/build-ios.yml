@@ -36,11 +36,12 @@ jobs:
           mkdir -p Mindustry/ios/libs/
           curl -L -o Mindustry/ios/libs/libarc-freetype.a "https://raw.githubusercontent.com/Anuken/Mindustry/master/ios/libs/libarc-freetype.a"
 
-      - name: Publish Arc locally to Maven
+      - name: Build and Publish Arc locally to Maven
         run: |
           cd Arc
-          # Publishing Arc artifacts locally allows RoboVM to locate and extract embedded native frameworks
-          ./gradlew publishToMavenLocal -x test || ./gradlew install -x test || true
+          # Build backend-robovm explicitly so embedded frameworks are staged
+          ./gradlew :backends:backend-robovm:build -x test
+          ./gradlew publishToMavenLocal -x test || ./gradlew install -x test
 
       - name: Build Unsigned iOS App
         run: |
