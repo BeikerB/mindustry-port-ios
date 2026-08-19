@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-ios:
+  build-ipa:
     runs-on: macos-13
 
     steps:
@@ -12,48 +12,72 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: Mindustry
+          lfs: true
+          submodules: recursive
 
-      - name: Set up JDK 17
+      - name: Checkout Arc
+        uses: actions/checkout@v4
+        with:
+          repository: Anuken/Arc
+          path: Arc
+
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Download & Extract Arc iOS Natives
+      - name: Download and Extract Arc iOS Natives
         run: |
           mkdir -p Arc/natives
-          curl -L -o arccoreios.zip "https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip"
-          unzip -o arccoreios.zip -d Arc/natives
-          
-          # Copy extracted natives into Mindustry ios libs structure
-          mkdir -p Mindustry/ios/libs
-          cp -R Arc/natives/* Mindustry/ios/libs/ || true
+          curl -L -s -o arccoreios.zip "https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip" || true
+          if [ -f "arccoreios.zip" ]; then
+            unzip -o -q arccoreios.zip -d Arc/natives || true
+            rm -f arccoreios.zip
+          fi
 
-      - name: Build Unsigned iOS App
+      - name: Fetch and Install MetalANGLE Frameworks
+        run: |
+          echo "Downloading official libGDX MetalANGLEKit..."
+          curl -L -f -o metalanglekit.zip "https://github.com/libgdx/MetalANGLEKit/releases/download/v1.2.1/metalanglekit.zip"
+          
+          echo "Extracting frameworks..."
+          mkdir -p metalangle-frameworks
+          unzip -q -o metalanglekit.zip -d metalangle-frameworks
+          
+          echo "Installing into Arc backend structure..."
+          mkdir -p Arc/backends/backend-robovm/libs/ios
+          cp -R metalangle-frameworks/* Arc/backends/backend-robovm/libs/ios/ || true
+          
+          echo "Installing into Mindustry ios libs structure..."
+          mkdir -p Mindustry/ios/libs
+          cp -R metalangle-frameworks/* Mindustry/ios/libs/ || true
+          
+          # Copy static libraries from Arc natives
+          find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
+
+          rm -rf metalanglekit.zip metalangle-frameworks
+
+      - name: Grant Permissions
+        run: |
+          chmod +x Mindustry/gradlew
+
+      - name: Run robovmArchive
         run: |
           cd Mindustry
-          chmod +x ./gradlew
           ./gradlew pack -PnoLocalArc=true
-          ./gradlew --stacktrace :ios:deploy \
+          ./gradlew robovmArchive \
+            --no-daemon \
+            --info \
             -Probovm.iosSkipSigning=true \
             -Probovm.archs=arm64 \
-            -Probovm.device.name="iPhone" \
             -PnoLocalArc=true
-
-      - name: Package into Sideloadable IPA
-        run: |
-          mkdir -p Payload
-          # Locate the built IPA or App bundle
-          if [ -f "Mindustry/ios/build/robovm/IOSLauncher.ipa" ]; then
-            cp Mindustry/ios/build/robovm/IOSLauncher.ipa Mindustry-unsigned.ipa
-          else
-            APP_PATH=$(find Mindustry/ios/build/robovm -name "*.app" | head -n 1)
-            cp -r "$APP_PATH" Payload/
-            zip -r Mindustry-unsigned.ipa Payload
-          fi
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Mindustry-iOS-IPA
-          path: Mindustry-unsigned.ipa
+          path: |
+            Mindustry/ios/build/robovm.tmp/*.ipa
+            Mindustry/ios/build/robovm/*.ipa
+          retention-days: 7
