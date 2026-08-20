@@ -26,7 +26,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup MetalANGLE Framework Everywhere
+      - name: Setup MetalANGLE Framework
         run: |
           mkdir -p Mindustry/ios/libs
           mkdir -p Arc/backends/backend-robovm/libs
@@ -43,11 +43,11 @@ jobs:
             exit 1
           fi
 
-          # 2. Extract MetalANGLEKit.framework to both Mindustry and Arc locations
+          # 2. Extract framework
           FOUND_FRAMEWORK=$(find temp_extracted -name "MetalANGLEKit.framework" | head -n 1)
           
           if [ -n "$FOUND_FRAMEWORK" ]; then
-            echo "Copying MetalANGLEKit.framework to target locations..."
+            echo "Copying MetalANGLEKit.framework..."
             cp -R "$FOUND_FRAMEWORK" Mindustry/ios/libs/
             cp -R "$FOUND_FRAMEWORK" Arc/backends/backend-robovm/libs/
           else
@@ -68,38 +68,40 @@ jobs:
             find Arc/natives -name "*.a" -exec cp {} Arc/backends/backend-robovm/libs/ \; || true
           fi
 
-      - name: Patch RoboVM Configuration Files
-        run: |
-          MINDUSTRY_LIBS="$(pwd)/Mindustry/ios/libs"
-          ARC_LIBS="$(pwd)/Arc/backends/backend-robovm/libs"
-
-          # Update robovm.xml in Mindustry
-          if [ -f "Mindustry/ios/robovm.xml" ]; then
-            sed -i '' "s|<\/robovm>|<frameworkPaths><path>$MINDUSTRY_LIBS<\/path><path>$ARC_LIBS<\/path><\/frameworkPaths><\/robovm>|" Mindustry/ios/robovm.xml
-          fi
-
-          # Update robovm.xml in Arc backend if present
-          if [ -f "Arc/backends/backend-robovm/robovm.xml" ]; then
-            sed -i '' "s|<\/robovm>|<frameworkPaths><path>$MINDUSTRY_LIBS<\/path><path>$ARC_LIBS<\/path><\/frameworkPaths><\/robovm>|" Arc/backends/backend-robovm/robovm.xml
-          fi
-
       - name: Grant Permissions
         run: chmod +x Mindustry/gradlew
+
+      - name: Pre-build Arc JARs
+        run: |
+          cd Mindustry
+          # Run pack first to compile and generate backend-robovm-1.0.jar
+          ./gradlew pack
+
+      - name: Inject Framework into RoboVM Cache
+        run: |
+          # Define the target RoboVM cache directory where clang++ looks for frameworks
+          CACHE_DIR="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
+          
+          echo "Creating RoboVM cache framework directory at $CACHE_DIR..."
+          mkdir -p "$CACHE_DIR"
+          
+          # Copy MetalANGLEKit directly into the cache directory
+          if [ -d "Mindustry/ios/libs/MetalANGLEKit.framework" ]; then
+            cp -R Mindustry/ios/libs/MetalANGLEKit.framework "$CACHE_DIR/"
+            echo "SUCCESS: Injected MetalANGLEKit.framework into RoboVM cache!"
+          else
+            echo "ERROR: Mindustry/ios/libs/MetalANGLEKit.framework does not exist!"
+            exit 1
+          fi
 
       - name: Run robovmArchive
         run: |
           cd Mindustry
-          
-          # Build dependent tasks first
-          ./gradlew pack
-          
-          # Run RoboVM Archive with explicit search path overrides
           ./gradlew robovmArchive \
             --no-daemon \
             -Probovm.iosSkipSigning=true \
             -Probovm.archs=arm64 \
-            -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs:$(pwd)/../Arc/backends/backend-robovm/libs" \
-            -Probovm.compilerArgs="-F$(pwd)/ios/libs -F$(pwd)/../Arc/backends/backend-robovm/libs"
+            -Probovm.compilerArgs="-F$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
