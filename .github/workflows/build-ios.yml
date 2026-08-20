@@ -45,12 +45,17 @@ jobs:
           mkdir -p metalangle-frameworks
           unzip -q -o metalanglekit.zip -d metalangle-frameworks
           
-          echo "Installing into Mindustry and RoboVM cache structures..."
+          echo "Setting up frameworks in Mindustry and Arc backend locations..."
           mkdir -p Mindustry/ios/libs
-          mkdir -p Mindustry/ios/libs/MetalANGLEKit.framework
           
-          # Copy extracted framework contents directly into Mindustry/ios/libs/
-          cp -R metalangle-frameworks/ Mindustry/ios/libs/ || true
+          # Create the exact missing search path that the linker was looking for
+          mkdir -p Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs
+          
+          # Copy frameworks to Mindustry libs
+          cp -R metalangle-frameworks/* Mindustry/ios/libs/ || true
+          
+          # Copy frameworks into the backend path RoboVM checks
+          cp -R metalangle-frameworks/* Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs/ || true
           
           # Copy static libraries from Arc natives
           find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
