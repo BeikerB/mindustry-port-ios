@@ -39,26 +39,24 @@ jobs:
           mkdir -p Arc/backends/backend-robovm/libs
           mkdir -p temp_extracted
           
-          # Find the manually placed MetalANGLEKit.zip at root
           ZIP_FILE=$(find . -maxdepth 2 -iname "*MetalANGLE*.zip" | head -n 1)
           
           if [ -n "$ZIP_FILE" ]; then
             echo "Found zip file at: $ZIP_FILE"
             unzip -q -o "$ZIP_FILE" -d temp_extracted
           else
-            echo "ERROR: MetalANGLEKit.zip was not found in the root repository!"
+            echo "ERROR: MetalANGLEKit.zip was not found!"
             exit 1
           fi
 
-          # Extract and locate the .framework directory
           FOUND_FRAMEWORK=$(find temp_extracted -name "MetalANGLEKit.framework" | head -n 1)
           
           if [ -n "$FOUND_FRAMEWORK" ]; then
-            echo "Copying MetalANGLEKit.framework to destination folders..."
+            echo "Copying MetalANGLEKit.framework..."
             cp -R "$FOUND_FRAMEWORK" Mindustry/ios/libs/
             cp -R "$FOUND_FRAMEWORK" Arc/backends/backend-robovm/libs/
           else
-            echo "ERROR: MetalANGLEKit.framework was not found inside the zip archive!"
+            echo "ERROR: MetalANGLEKit.framework missing inside zip!"
             exit 1
           fi
           
@@ -83,29 +81,40 @@ jobs:
           cd Mindustry
           ./gradlew pack
 
-      - name: Inject Framework into RoboVM Cache
+      - name: Repackage backend-robovm JAR with Frameworks
         run: |
-          CACHE_DIR="$HOME/.robovm/cache/ios/arm64/release${GITHUB_WORKSPACE}/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
+          JAR_PATH="Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar"
           
-          echo "Creating RoboVM cache framework directory..."
-          mkdir -p "$CACHE_DIR"
-          
-          if [ -d "Mindustry/ios/libs/MetalANGLEKit.framework" ]; then
-            cp -R Mindustry/ios/libs/MetalANGLEKit.framework "$CACHE_DIR/"
-            echo "SUCCESS: Injected MetalANGLEKit.framework into RoboVM cache!"
+          if [ -f "$JAR_PATH" ]; then
+            echo "Injecting MetalANGLEKit into $JAR_PATH..."
+            mkdir -p jar_contents/META-INF/robovm/ios/libs
+            
+            # Extract current JAR contents
+            unzip -q "$JAR_PATH" -d jar_contents
+            
+            # Copy framework directly into META-INF/robovm/ios/libs
+            cp -R Mindustry/ios/libs/MetalANGLEKit.framework jar_contents/META-INF/robovm/ios/libs/
+            
+            # Repack the JAR
+            cd jar_contents
+            zip -r -q "../$JAR_PATH" .
+            cd ..
+            
+            rm -rf jar_contents
+            echo "Successfully repackaged backend-robovm-1.0.jar!"
           else
-            echo "ERROR: Mindustry/ios/libs/MetalANGLEKit.framework missing!"
+            echo "ERROR: $JAR_PATH not found after running gradlew pack!"
             exit 1
           fi
+
       - name: Run robovmArchive
         run: |
           cd Mindustry
           ./gradlew robovmArchive \
             --no-daemon \
             -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64 \
-            -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs:$HOME/.robovm/cache/ios/arm64/release${GITHUB_WORKSPACE}/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
-      
+            -Probovm.archs=arm64
+
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
