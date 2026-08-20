@@ -97,15 +97,15 @@ jobs:
             echo "ERROR: Mindustry/ios/libs/MetalANGLEKit.framework missing!"
             exit 1
           fi
-
       - name: Run robovmArchive
         run: |
           cd Mindustry
           ./gradlew robovmArchive \
             --no-daemon \
             -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64
-
+            -Probovm.archs=arm64 \
+            -Probovm.iosFrameworkSearchPaths="$(pwd)/libs"
+      
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
