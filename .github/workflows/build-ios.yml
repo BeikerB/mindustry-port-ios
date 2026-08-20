@@ -6,7 +6,14 @@ on:
 jobs:
   build-ipa:
     runs-on: macos-latest
+
     steps:
+      - name: Checkout Repository Root
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+
       - name: Checkout Mindustry
         uses: actions/checkout@v4
         with:
@@ -26,32 +33,32 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup MetalANGLE Framework
+      - name: Extract Manual MetalANGLE Framework
         run: |
           mkdir -p Mindustry/ios/libs
           mkdir -p Arc/backends/backend-robovm/libs
           mkdir -p temp_extracted
-
-          # 1. Locate and extract MetalANGLEKit.zip
-          ZIP_FILE=$(find . -name "MetalANGLEKit.zip" | head -n 1)
+          
+          # Find the manually placed MetalANGLEKit.zip at root
+          ZIP_FILE=$(find . -maxdepth 2 -iname "*MetalANGLE*.zip" | head -n 1)
           
           if [ -n "$ZIP_FILE" ]; then
-            echo "Extracting MetalANGLEKit.zip from $ZIP_FILE..."
+            echo "Found zip file at: $ZIP_FILE"
             unzip -q -o "$ZIP_FILE" -d temp_extracted
           else
-            echo "ERROR: MetalANGLEKit.zip not found!"
+            echo "ERROR: MetalANGLEKit.zip was not found in the root repository!"
             exit 1
           fi
 
-          # 2. Extract framework
+          # Extract and locate the .framework directory
           FOUND_FRAMEWORK=$(find temp_extracted -name "MetalANGLEKit.framework" | head -n 1)
           
           if [ -n "$FOUND_FRAMEWORK" ]; then
-            echo "Copying MetalANGLEKit.framework..."
+            echo "Copying MetalANGLEKit.framework to destination folders..."
             cp -R "$FOUND_FRAMEWORK" Mindustry/ios/libs/
             cp -R "$FOUND_FRAMEWORK" Arc/backends/backend-robovm/libs/
           else
-            echo "ERROR: MetalANGLEKit.framework not found in zip!"
+            echo "ERROR: MetalANGLEKit.framework was not found inside the zip archive!"
             exit 1
           fi
           
@@ -74,23 +81,20 @@ jobs:
       - name: Pre-build Arc JARs
         run: |
           cd Mindustry
-          # Run pack first to compile and generate backend-robovm-1.0.jar
           ./gradlew pack
 
       - name: Inject Framework into RoboVM Cache
         run: |
-          # Define the target RoboVM cache directory where clang++ looks for frameworks
-          CACHE_DIR="$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
+          CACHE_DIR="$HOME/.robovm/cache/ios/arm64/release${GITHUB_WORKSPACE}/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
           
-          echo "Creating RoboVM cache framework directory at $CACHE_DIR..."
+          echo "Creating RoboVM cache framework directory..."
           mkdir -p "$CACHE_DIR"
           
-          # Copy MetalANGLEKit directly into the cache directory
           if [ -d "Mindustry/ios/libs/MetalANGLEKit.framework" ]; then
             cp -R Mindustry/ios/libs/MetalANGLEKit.framework "$CACHE_DIR/"
             echo "SUCCESS: Injected MetalANGLEKit.framework into RoboVM cache!"
           else
-            echo "ERROR: Mindustry/ios/libs/MetalANGLEKit.framework does not exist!"
+            echo "ERROR: Mindustry/ios/libs/MetalANGLEKit.framework missing!"
             exit 1
           fi
 
@@ -100,8 +104,7 @@ jobs:
           ./gradlew robovmArchive \
             --no-daemon \
             -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64 \
-            -Probovm.compilerArgs="-F$HOME/.robovm/cache/ios/arm64/release/Users/runner/work/mindustry-port-ios/mindustry-port-ios/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
+            -Probovm.archs=arm64
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
