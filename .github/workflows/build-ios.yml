@@ -42,25 +42,30 @@ jobs:
           curl -L -f -o metalanglekit.zip "https://github.com/libgdx/MetalANGLEKit/releases/download/v1.2.1/metalanglekit.zip"
           
           echo "Extracting frameworks..."
-          mkdir -p metalangle-frameworks
-          unzip -q -o metalanglekit.zip -d metalangle-frameworks
+          mkdir -p metalangle-temp
+          unzip -q -o metalanglekit.zip -d metalangle-temp
           
-          echo "Setting up frameworks in Mindustry and Arc backend locations..."
+          echo "Installing directly into Mindustry ios/libs..."
           mkdir -p Mindustry/ios/libs
           
-          # Create the exact missing search path that the linker was looking for
-          mkdir -p Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs
-          
-          # Copy frameworks to Mindustry libs
-          cp -R metalangle-frameworks/* Mindustry/ios/libs/ || true
-          
-          # Copy frameworks into the backend path RoboVM checks
-          cp -R metalangle-frameworks/* Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs/ || true
+          # Move framework directories into Mindustry/ios/libs
+          cp -R metalangle-temp/* Mindustry/ios/libs/ || true
           
           # Copy static libraries from Arc natives
           find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
 
-          rm -rf metalanglekit.zip metalangle-frameworks
+          rm -rf metalanglekit.zip metalangle-temp
+
+      - name: Verify MetalANGLEKit Availability
+        run: |
+          echo "Checking framework availability in Mindustry/ios/libs..."
+          if [ -d "Mindustry/ios/libs/MetalANGLEKit.framework" ]; then
+            echo "SUCCESS: MetalANGLEKit.framework found."
+            ls -la Mindustry/ios/libs/MetalANGLEKit.framework
+          else
+            echo "ERROR: MetalANGLEKit.framework is missing from Mindustry/ios/libs!"
+            exit 1
+          fi
 
       - name: Grant Permissions
         run: |
@@ -72,9 +77,10 @@ jobs:
           ./gradlew pack
           ./gradlew robovmArchive \
             --no-daemon \
-            --info \
+            --debug \
             -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64
+            -Probovm.archs=arm64 \
+            -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs"
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
