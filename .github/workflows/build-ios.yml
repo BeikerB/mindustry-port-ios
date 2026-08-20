@@ -61,16 +61,11 @@ jobs:
         run: |          
           chmod +x Mindustry/gradlew      
 
-      - name: Run robovmArchive        
-        run: |          
-          cd Mindustry          
-          ./gradlew pack --quiet          
-          ./gradlew robovmArchive \            
-            --no-daemon \            
-            --info \            
-            -Probovm.iosSkipSigning=true \            
-            -Probovm.archs=arm64 \            
-            -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs"      
+      - name: Run robovmArchive
+        run: |
+          cd Mindustry
+          ./gradlew pack
+          ./gradlew robovmArchive --no-daemon -Probovm.iosSkipSigning=true -Probovm.archs=arm64 -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs"
 
       - name: Upload IPA Artifact        
         uses: actions/upload-artifact@v4        
