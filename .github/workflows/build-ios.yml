@@ -45,11 +45,11 @@ jobs:
           mkdir -p metalangle-temp
           unzip -q -o metalanglekit.zip -d metalangle-temp
           
-          echo "Installing directly into Mindustry ios/libs..."
+          echo "Installing frameworks into Mindustry/ios/libs..."
           mkdir -p Mindustry/ios/libs
           
-          # Move framework directories into Mindustry/ios/libs
-          cp -R metalangle-temp/* Mindustry/ios/libs/ || true
+          # Find all .framework directories regardless of nesting depth and copy them directly to Mindustry/ios/libs/
+          find metalangle-temp -name "*.framework" -exec cp -R {} Mindustry/ios/libs/ \;
           
           # Copy static libraries from Arc natives
           find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
@@ -64,6 +64,8 @@ jobs:
             ls -la Mindustry/ios/libs/MetalANGLEKit.framework
           else
             echo "ERROR: MetalANGLEKit.framework is missing from Mindustry/ios/libs!"
+            echo "Contents of Mindustry/ios/libs:"
+            ls -la Mindustry/ios/libs/ || true
             exit 1
           fi
 
