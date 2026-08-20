@@ -1,82 +1,14 @@
-name: Build iOS IPA
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build-ipa:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout Mindustry
-        uses: actions/checkout@v4
-        with:
-          path: Mindustry
-          lfs: true
-          submodules: recursive
-
-      - name: Checkout Arc
-        uses: actions/checkout@v4
-        with:
-          repository: Anuken/Arc
-          path: Arc
-
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Fetch and Setup MetalANGLE
+- name: Fetch and Setup MetalANGLE
         run: |
+          # 1. Create the libs folder since it doesn't exist in the repo
           mkdir -p Mindustry/ios/libs
           
+          # 2. Download MetalANGLE
           curl -L -s -o metalangle.zip "https://github.com/libgdx/MetalANGLEKit/releases/download/v1.2.1/metalanglekit.zip"
           unzip -q -o metalangle.zip -d temp_metalangle
           
-          # Move MetalANGLEKit.framework into ios/libs
-          cp -R temp_metalangle/MetalANGLEKit.framework Mindustry/ios/libs/
-          rm -rf temp_metalangle metalangle.zip
-
-      - name: Fetch Arc iOS Natives
-        run: |
-          mkdir -p Arc/natives
-          curl -L -s -o arccoreios.zip "https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip" || true
-          if [ -f "arccoreios.zip" ]; then
-            unzip -o -q arccoreios.zip -d Arc/natives || true
-            rm -f arccoreios.zip
-            find Arc/natives -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
-          fi
-
-      - name: Configure RoboVM Framework Paths
-        run: |
-          # Patch robovm.xml to explicitly include ios/libs as a framework search path
-          ROBOVM_XML="Mindustry/ios/robovm.xml"
-          LIBS_DIR="$(pwd)/Mindustry/ios/libs"
+          # 3. Find MetalANGLEKit.framework wherever it extracted and copy it to ios/libs/
+          find temp_metalangle -name "MetalANGLEKit.framework" -exec cp -R {} Mindustry/ios/libs/ \;
           
-          if [ -f "$ROBOVM_XML" ]; then
-            # Insert frameworkPath right before </robovm>
-            sed -i '' "s|<\/robovm>|<frameworkPaths><path>$LIBS_DIR<\/path><\/frameworkPaths><\/robovm>|" "$ROBOVM_XML"
-          fi
-
-      - name: Grant Permissions
-        run: chmod +x Mindustry/gradlew
-
-      - name: Run robovmArchive
-        run: |
-          cd Mindustry
-          ./gradlew pack
-          ./gradlew robovmArchive \
-            --no-daemon \
-            -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64 \
-            -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs" \
-            -Probovm.compilerArgs="-F$(pwd)/ios/libs"
-
-      - name: Upload IPA Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mindustry-iOS-IPA
-          path: |
-            Mindustry/ios/build/robovm/*.ipa
-            Mindustry/ios/build/robovm.tmp/*.ipa
-          retention-days: 7
+          # 4. Clean up temporary files
+          rm -rf temp_metalangle metalangle.zip
