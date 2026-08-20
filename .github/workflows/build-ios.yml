@@ -26,33 +26,36 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Unzip MetalANGLE
+      - name: Setup MetalANGLE Framework Everywhere
         run: |
           mkdir -p Mindustry/ios/libs
+          mkdir -p Arc/backends/backend-robovm/libs
           mkdir -p temp_extracted
 
-          # 1. Search for MetalANGLEKit.zip anywhere in the workspace
+          # 1. Locate and extract MetalANGLEKit.zip
           ZIP_FILE=$(find . -name "MetalANGLEKit.zip" | head -n 1)
           
           if [ -n "$ZIP_FILE" ]; then
-            echo "Found zip file at: $ZIP_FILE"
+            echo "Extracting MetalANGLEKit.zip from $ZIP_FILE..."
             unzip -q -o "$ZIP_FILE" -d temp_extracted
           else
             echo "ERROR: MetalANGLEKit.zip not found!"
             exit 1
           fi
 
-          # 2. Extract framework to Mindustry/ios/libs
-          find temp_extracted -name "MetalANGLEKit.framework" -exec cp -R {} Mindustry/ios/libs/ \;
-          rm -rf temp_extracted
-
-          # 3. Verify
-          if [ -d "Mindustry/ios/libs/MetalANGLEKit.framework" ]; then
-            echo "SUCCESS: MetalANGLEKit.framework successfully unpacked into Mindustry/ios/libs/"
+          # 2. Extract MetalANGLEKit.framework to both Mindustry and Arc locations
+          FOUND_FRAMEWORK=$(find temp_extracted -name "MetalANGLEKit.framework" | head -n 1)
+          
+          if [ -n "$FOUND_FRAMEWORK" ]; then
+            echo "Copying MetalANGLEKit.framework to target locations..."
+            cp -R "$FOUND_FRAMEWORK" Mindustry/ios/libs/
+            cp -R "$FOUND_FRAMEWORK" Arc/backends/backend-robovm/libs/
           else
-            echo "ERROR: MetalANGLEKit.framework was not found inside MetalANGLEKit.zip!"
+            echo "ERROR: MetalANGLEKit.framework not found in zip!"
             exit 1
           fi
+          
+          rm -rf temp_extracted
 
       - name: Fetch Arc iOS Natives
         run: |
@@ -62,15 +65,22 @@ jobs:
             unzip -o -q arccoreios.zip -d Arc/natives || true
             rm -f arccoreios.zip
             find Arc/natives -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
+            find Arc/natives -name "*.a" -exec cp {} Arc/backends/backend-robovm/libs/ \; || true
           fi
 
-      - name: Configure RoboVM Framework Paths
+      - name: Patch RoboVM Configuration Files
         run: |
-          ROBOVM_XML="Mindustry/ios/robovm.xml"
-          LIBS_DIR="$(pwd)/Mindustry/ios/libs"
-          
-          if [ -f "$ROBOVM_XML" ]; then
-            sed -i '' "s|<\/robovm>|<frameworkPaths><path>$LIBS_DIR<\/path><\/frameworkPaths><\/robovm>|" "$ROBOVM_XML"
+          MINDUSTRY_LIBS="$(pwd)/Mindustry/ios/libs"
+          ARC_LIBS="$(pwd)/Arc/backends/backend-robovm/libs"
+
+          # Update robovm.xml in Mindustry
+          if [ -f "Mindustry/ios/robovm.xml" ]; then
+            sed -i '' "s|<\/robovm>|<frameworkPaths><path>$MINDUSTRY_LIBS<\/path><path>$ARC_LIBS<\/path><\/frameworkPaths><\/robovm>|" Mindustry/ios/robovm.xml
+          fi
+
+          # Update robovm.xml in Arc backend if present
+          if [ -f "Arc/backends/backend-robovm/robovm.xml" ]; then
+            sed -i '' "s|<\/robovm>|<frameworkPaths><path>$MINDUSTRY_LIBS<\/path><path>$ARC_LIBS<\/path><\/frameworkPaths><\/robovm>|" Arc/backends/backend-robovm/robovm.xml
           fi
 
       - name: Grant Permissions
@@ -79,13 +89,17 @@ jobs:
       - name: Run robovmArchive
         run: |
           cd Mindustry
+          
+          # Build dependent tasks first
           ./gradlew pack
+          
+          # Run RoboVM Archive with explicit search path overrides
           ./gradlew robovmArchive \
             --no-daemon \
             -Probovm.iosSkipSigning=true \
             -Probovm.archs=arm64 \
-            -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs" \
-            -Probovm.compilerArgs="-F$(pwd)/ios/libs"
+            -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs:$(pwd)/../Arc/backends/backend-robovm/libs" \
+            -Probovm.compilerArgs="-F$(pwd)/ios/libs -F$(pwd)/../Arc/backends/backend-robovm/libs"
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
