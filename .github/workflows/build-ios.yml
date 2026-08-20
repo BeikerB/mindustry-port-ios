@@ -104,7 +104,7 @@ jobs:
             --no-daemon \
             -Probovm.iosSkipSigning=true \
             -Probovm.archs=arm64 \
-            -Probovm.iosFrameworkSearchPaths="$(pwd)/libs"
+            -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs:$HOME/.robovm/cache/ios/arm64/release${GITHUB_WORKSPACE}/Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar.extracted/META-INF/robovm/ios/libs"
       
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
