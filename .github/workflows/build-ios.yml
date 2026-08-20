@@ -26,31 +26,31 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Unzip MetalANGLE from Root
+      - name: Unzip MetalANGLE
         run: |
           mkdir -p Mindustry/ios/libs
           mkdir -p temp_extracted
 
-          # 1. Find and unzip any .zip file in the root directory
-          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          # 1. Search for MetalANGLEKit.zip anywhere in the workspace
+          ZIP_FILE=$(find . -name "MetalANGLEKit.zip" | head -n 1)
           
           if [ -n "$ZIP_FILE" ]; then
-            echo "Unpacking $ZIP_FILE..."
+            echo "Found zip file at: $ZIP_FILE"
             unzip -q -o "$ZIP_FILE" -d temp_extracted
           else
-            echo "ERROR: No zip file found in root!"
+            echo "ERROR: MetalANGLEKit.zip not found!"
             exit 1
           fi
 
-          # 2. Search extracted contents for MetalANGLEKit.framework and copy to ios/libs/
+          # 2. Extract framework to Mindustry/ios/libs
           find temp_extracted -name "MetalANGLEKit.framework" -exec cp -R {} Mindustry/ios/libs/ \;
           rm -rf temp_extracted
 
-          # 3. Verify that the framework is ready
+          # 3. Verify
           if [ -d "Mindustry/ios/libs/MetalANGLEKit.framework" ]; then
             echo "SUCCESS: MetalANGLEKit.framework successfully unpacked into Mindustry/ios/libs/"
           else
-            echo "ERROR: MetalANGLEKit.framework was not found inside the zip file!"
+            echo "ERROR: MetalANGLEKit.framework was not found inside MetalANGLEKit.zip!"
             exit 1
           fi
 
