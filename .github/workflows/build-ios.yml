@@ -1,94 +1,82 @@
 name: Build iOS IPA
-
-on:
+on:  
   workflow_dispatch:
 
-jobs:
-  build-ipa:
-    runs-on: macos-latest
+jobs:  
+  build-ipa:    
+    runs-on: macos-latest    
+    steps:      
+      - name: Checkout Mindustry        
+        uses: actions/checkout@v4        
+        with:          
+          path: Mindustry          
+          lfs: true          
+          submodules: recursive      
 
-    steps:
-      - name: Checkout Mindustry
-        uses: actions/checkout@v4
-        with:
-          path: Mindustry
-          lfs: true
-          submodules: recursive
+      - name: Checkout Arc        
+        uses: actions/checkout@v4        
+        with:          
+          repository: Anuken/Arc          
+          path: Arc      
 
-      - name: Checkout Arc
-        uses: actions/checkout@v4
-        with:
-          repository: Anuken/Arc
-          path: Arc
+      - name: Setup Java 17        
+        uses: actions/setup-java@v4        
+        with:          
+          distribution: 'temurin'          
+          java-version: '17'      
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+      - name: Download and Extract Arc iOS Natives        
+        run: |          
+          mkdir -p Arc/natives          
+          curl -L -s -o arccoreios.zip "https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip" || true          
+          if [ -f "arccoreios.zip" ]; then            
+            unzip -o -q arccoreios.zip -d Arc/natives || true            
+            rm -f arccoreios.zip          
+          fi      
 
-      - name: Download and Extract Arc iOS Natives
-        run: |
-          mkdir -p Arc/natives
-          curl -L -s -o arccoreios.zip "https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip" || true
-          if [ -f "arccoreios.zip" ]; then
-            unzip -o -q arccoreios.zip -d Arc/natives || true
-            rm -f arccoreios.zip
-          fi
+      - name: Fetch and Install MetalANGLE Frameworks        
+        run: |          
+          echo "Downloading official libGDX MetalANGLEKit..."          
+          curl -L -f -s -o metalanglekit.zip "https://github.com/libgdx/MetalANGLEKit/releases/download/v1.2.1/metalanglekit.zip"                    
+          echo "Extracting frameworks..."          
+          mkdir -p metalangle-temp          
+          unzip -q -o metalanglekit.zip -d metalangle-temp                    
+          echo "Installing frameworks into Mindustry/ios/libs..."          
+          mkdir -p Mindustry/ios/libs                    
+          find metalangle-temp -name "*.framework" -exec cp -R {} Mindustry/ios/libs/ \;                    
+          find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true          
+          rm -rf metalanglekit.zip metalangle-temp      
 
-      - name: Fetch and Install MetalANGLE Frameworks
-        run: |
-          echo "Downloading official libGDX MetalANGLEKit..."
-          curl -L -f -o metalanglekit.zip "https://github.com/libgdx/MetalANGLEKit/releases/download/v1.2.1/metalanglekit.zip"
-          
-          echo "Extracting frameworks..."
-          mkdir -p metalangle-temp
-          unzip -q -o metalanglekit.zip -d metalangle-temp
-          
-          echo "Installing frameworks into Mindustry/ios/libs..."
-          mkdir -p Mindustry/ios/libs
-          
-          # Find all .framework directories regardless of nesting depth and copy them directly to Mindustry/ios/libs/
-          find metalangle-temp -name "*.framework" -exec cp -R {} Mindustry/ios/libs/ \;
-          
-          # Copy static libraries from Arc natives
-          find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
+      - name: Verify MetalANGLEKit Availability        
+        run: |          
+          echo "Checking framework availability in Mindustry/ios/libs..."          
+          if [ -d "Mindustry/ios/libs/MetalANGLEKit.framework" ]; then            
+            echo "SUCCESS: MetalANGLEKit.framework found."          
+          else            
+            echo "ERROR: MetalANGLEKit.framework is missing from Mindustry/ios/libs!"            
+            exit 1          
+          fi      
 
-          rm -rf metalanglekit.zip metalangle-temp
+      - name: Grant Permissions        
+        run: |          
+          chmod +x Mindustry/gradlew      
 
-      - name: Verify MetalANGLEKit Availability
-        run: |
-          echo "Checking framework availability in Mindustry/ios/libs..."
-          if [ -d "Mindustry/ios/libs/MetalANGLEKit.framework" ]; then
-            echo "SUCCESS: MetalANGLEKit.framework found."
-            ls -la Mindustry/ios/libs/MetalANGLEKit.framework
-          else
-            echo "ERROR: MetalANGLEKit.framework is missing from Mindustry/ios/libs!"
-            echo "Contents of Mindustry/ios/libs:"
-            ls -la Mindustry/ios/libs/ || true
-            exit 1
-          fi
+      - name: Run robovmArchive        
+        run: |          
+          cd Mindustry          
+          ./gradlew pack --quiet          
+          ./gradlew robovmArchive \            
+            --no-daemon \            
+            --info \            
+            -Probovm.iosSkipSigning=true \            
+            -Probovm.archs=arm64 \            
+            -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs"      
 
-      - name: Grant Permissions
-        run: |
-          chmod +x Mindustry/gradlew
-
-      - name: Run robovmArchive
-        run: |
-          cd Mindustry
-          ./gradlew pack
-          ./gradlew robovmArchive \
-            --no-daemon \
-            --debug \
-            -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64 \
-            -Probovm.iosFrameworkSearchPaths="$(pwd)/ios/libs"
-
-      - name: Upload IPA Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mindustry-iOS-IPA
-          path: |
-            Mindustry/ios/build/robovm.tmp/*.ipa
-            Mindustry/ios/build/robovm/*.ipa
+      - name: Upload IPA Artifact        
+        uses: actions/upload-artifact@v4        
+        with:          
+          name: Mindustry-iOS-IPA          
+          path: |            
+            Mindustry/ios/build/robovm.tmp/*.ipa            
+            Mindustry/ios/build/robovm/*.ipa          
           retention-days: 7
