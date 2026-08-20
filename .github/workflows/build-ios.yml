@@ -45,13 +45,12 @@ jobs:
           mkdir -p metalangle-frameworks
           unzip -q -o metalanglekit.zip -d metalangle-frameworks
           
-          echo "Installing into Arc backend structure..."
-          mkdir -p Arc/backends/backend-robovm/libs/ios
-          cp -R metalangle-frameworks/* Arc/backends/backend-robovm/libs/ios/ || true
-          
-          echo "Installing into Mindustry ios libs structure..."
+          echo "Installing into Mindustry and RoboVM cache structures..."
           mkdir -p Mindustry/ios/libs
-          cp -R metalangle-frameworks/* Mindustry/ios/libs/ || true
+          mkdir -p Mindustry/ios/libs/MetalANGLEKit.framework
+          
+          # Copy extracted framework contents directly into Mindustry/ios/libs/
+          cp -R metalangle-frameworks/ Mindustry/ios/libs/ || true
           
           # Copy static libraries from Arc natives
           find Arc -name "*.a" -exec cp {} Mindustry/ios/libs/ \; || true
@@ -65,13 +64,12 @@ jobs:
       - name: Run robovmArchive
         run: |
           cd Mindustry
-          ./gradlew pack -PnoLocalArc=true
+          ./gradlew pack
           ./gradlew robovmArchive \
             --no-daemon \
             --info \
             -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64 \
-            -PnoLocalArc=true
+            -Probovm.archs=arm64
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
