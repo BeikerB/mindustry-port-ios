@@ -26,33 +26,31 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Recombine and Extract Split MetalANGLE
+      - name: Unzip MetalANGLE from Root
         run: |
           mkdir -p Mindustry/ios/libs
-          cd Mindustry/ios/libs
+          mkdir -p temp_extracted
+
+          # 1. Find and unzip any .zip file in the root directory
+          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
           
-          echo "Recombining split zip files..."
-          if ls l1.z* 1> /dev/null 2>&1; then
-            zip -s 0 l1.zip --out combined.zip
-            unzip -q -o combined.zip
-            rm combined.zip
-          elif [ -f "l1.zip" ]; then
-            unzip -q -o l1.zip
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Unpacking $ZIP_FILE..."
+            unzip -q -o "$ZIP_FILE" -d temp_extracted
           else
-            echo "ERROR: l1 split zip files not found in Mindustry/ios/libs!"
+            echo "ERROR: No zip file found in root!"
             exit 1
           fi
 
-          echo "Ensuring framework path structure..."
-          if [ -d "MetalANGLEKit.xcframework/ios-arm64/MetalANGLEKit.framework" ]; then
-            cp -R MetalANGLEKit.xcframework/ios-arm64/MetalANGLEKit.framework ./
-          fi
-          
-          if [ -d "MetalANGLEKit.framework" ]; then
-            echo "SUCCESS: MetalANGLEKit.framework successfully unpacked!"
+          # 2. Search extracted contents for MetalANGLEKit.framework and copy to ios/libs/
+          find temp_extracted -name "MetalANGLEKit.framework" -exec cp -R {} Mindustry/ios/libs/ \;
+          rm -rf temp_extracted
+
+          # 3. Verify that the framework is ready
+          if [ -d "Mindustry/ios/libs/MetalANGLEKit.framework" ]; then
+            echo "SUCCESS: MetalANGLEKit.framework successfully unpacked into Mindustry/ios/libs/"
           else
-            echo "ERROR: MetalANGLEKit.framework missing after extraction!"
-            ls -la
+            echo "ERROR: MetalANGLEKit.framework was not found inside the zip file!"
             exit 1
           fi
 
