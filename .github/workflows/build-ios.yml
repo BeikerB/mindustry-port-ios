@@ -27,7 +27,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Extract MetalANGLE Framework to Mindustry libs
+      - name: Extract Manual MetalANGLE Framework
         run: |
           mkdir -p Mindustry/ios/libs
           mkdir -p temp_extracted
@@ -53,7 +53,7 @@ jobs:
           fi
           
           rm -rf temp_extracted
-
+          
       - name: Fetch and Extract Arc Native Libraries
         run: |
           mkdir -p Mindustry/ios/libs
