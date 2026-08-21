@@ -45,20 +45,26 @@ jobs:
             rm -rf temp_natives arccoreios.zip
           fi
 
-      - name: Extract MetalANGLE Framework
+      - name: Extract MetalANGLE Framework for iOS
         run: |
           mkdir -p Mindustry/ios/libs
           mkdir -p temp_extracted
           
-          ZIP_FILE=$(find . -iname "*MetalANGLE*.zip" | head -n 1)
-          if [ -n "$ZIP_FILE" ]; then
-            echo "Found MetalANGLE zip file at: $ZIP_FILE"
-            unzip -q -o "$ZIP_FILE" -d temp_extracted
+          # Unzip MetalANGLEKit from repo root
+          unzip -q -o MetalANGLEKit.zip -d temp_extracted
+
+          # Find and copy ONLY the actual arm64 .framework folder
+          ARM64_FRAMEWORK=$(find temp_extracted -path "*/ios-arm64/MetalANGLEKit.framework" | head -n 1)
+          
+          if [ -n "$ARM64_FRAMEWORK" ]; then
+            echo "Found arm64 framework at: $ARM64_FRAMEWORK"
+            cp -R "$ARM64_FRAMEWORK" Mindustry/ios/libs/
           else
-            echo "ERROR: MetalANGLEKit.zip was not found!"
+            echo "ERROR: Could not find arm64 MetalANGLEKit.framework"
             exit 1
           fi
 
+          rm -rf temp_extracted
           FOUND_FRAMEWORK=$(find temp_extracted -name "MetalANGLEKit.framework" | head -n 1)
           if [ -n "$FOUND_FRAMEWORK" ]; then
             cp -R "$FOUND_FRAMEWORK" Mindustry/ios/libs/
