@@ -49,5 +49,6 @@
     </frameworks>
     <frameworkPaths>
         <path>libs</path>
+        <path>ios/libs</path>
     </frameworkPaths>
 </config>
