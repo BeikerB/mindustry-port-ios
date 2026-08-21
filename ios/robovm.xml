@@ -40,6 +40,8 @@
     <frameworks>
         <framework>UIKit</framework>
         <framework>MetalANGLEKit</framework>
+        <framework>libGLESv2</framework>
+        <framework>OpenGLES</framework>
         <framework>Metal</framework>
         <framework>QuartzCore</framework>
         <framework>CoreGraphics</framework>
