@@ -73,42 +73,19 @@ jobs:
             find Arc/natives -name "*.a" -exec cp {} Arc/backends/backend-robovm/libs/ \; || true
           fi
 
-      - name: Grant Permissions
-        run: chmod +x Mindustry/gradlew
+      - name: Inject Framework into Arc Source Structure
+        run: |
+          mkdir -p Arc/backends/backend-robovm/src/main/resources/META-INF/robovm/ios/libs
+          cp -R Mindustry/ios/libs/MetalANGLEKit.framework Arc/backends/backend-robovm/src/main/resources/META-INF/robovm/ios/libs/
 
-      - name: Pre-build Arc JARs
+      - name: Publish Arc to Local Maven
         run: |
           cd Arc
           chmod +x gradlew || true
-          ./gradlew :backends:backend-robovm:jar
-          cd ../Mindustry
-          ./gradlew pack
+          ./gradlew publishToMavenLocal -x test
 
-      - name: Repackage backend-robovm JAR with Frameworks
-        run: |
-          JAR_PATH="Arc/backends/backend-robovm/build/libs/backend-robovm-1.0.jar"
-          
-          if [ -f "$JAR_PATH" ]; then
-            echo "Injecting MetalANGLEKit into $JAR_PATH..."
-            mkdir -p jar_contents/META-INF/robovm/ios/libs
-            
-            # Extract current JAR contents
-            unzip -q "$JAR_PATH" -d jar_contents
-            
-            # Copy framework directly into META-INF/robovm/ios/libs
-            cp -R Mindustry/ios/libs/MetalANGLEKit.framework jar_contents/META-INF/robovm/ios/libs/
-            
-            # Repack the JAR
-            cd jar_contents
-            zip -r -q "../$JAR_PATH" .
-            cd ..
-            
-            rm -rf jar_contents
-            echo "Successfully repackaged backend-robovm-1.0.jar!"
-          else
-            echo "ERROR: $JAR_PATH not found after running gradlew pack!"
-            exit 1
-          fi
+      - name: Grant Permissions
+        run: chmod +x Mindustry/gradlew
 
       - name: Run robovmArchive
         run: |
