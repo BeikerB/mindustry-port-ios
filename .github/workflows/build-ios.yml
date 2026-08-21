@@ -103,6 +103,11 @@ jobs:
             fi
           done
 
+      - name: Clean RoboVM Cache
+        run: |
+          rm -rf ~/.robovm/cache
+          ./gradlew clean
+
       - name: Grant Permissions
         run: chmod +x Mindustry/gradlew
 
