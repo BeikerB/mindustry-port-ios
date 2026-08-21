@@ -82,6 +82,23 @@ jobs:
       - name: Grant Permissions
         run: chmod +x Mindustry/gradlew
 
+      - name: Patch Arc JAR to Remove Invalid Framework Entries
+        run: |
+          find ~/.gradle/caches/modules-2/files-2.1/com.github.Anuken.Arc/backend-robovm -name "*.jar" | while read -r jarfile; do
+            echo "Patching $jarfile..."
+            mkdir -p temp_jar
+            unzip -q "$jarfile" -d temp_jar
+            
+            if [ -f "temp_jar/META-INF/robovm/ios/robovm.xml" ]; then
+              sed -i '' '/<framework>libGLESv2<\/framework>/d' temp_jar/META-INF/robovm/ios/robovm.xml
+              sed -i '' '/<framework>libEGL<\/framework>/d' temp_jar/META-INF/robovm/ios/robovm.xml
+              sed -i '' '/<framework>libfeature_support<\/framework>/d' temp_jar/META-INF/robovm/ios/robovm.xml
+              
+              (cd temp_jar && zip -q -r "$jarfile" .)
+            fi
+            rm -rf temp_jar
+          done
+
       - name: Run robovmArchive
         run: |
           cd Mindustry
