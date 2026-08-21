@@ -50,48 +50,44 @@ jobs:
           mkdir -p Mindustry/ios/libs
           mkdir -p temp_extracted
           
-          # Unzip MetalANGLEKit from repo root
-          unzip -q -o MetalANGLEKit.zip -d temp_extracted
-
-          # Find and copy ONLY the actual arm64 .framework folder
-          ARM64_FRAMEWORK=$(find temp_extracted -path "*/ios-arm64/MetalANGLEKit.framework" | head -n 1)
-          
-          if [ -n "$ARM64_FRAMEWORK" ]; then
-            echo "Found arm64 framework at: $ARM64_FRAMEWORK"
-            cp -R "$ARM64_FRAMEWORK" Mindustry/ios/libs/
+          if [ -f "MetalANGLEKit.zip" ]; then
+            unzip -q -o MetalANGLEKit.zip -d temp_extracted
+            ARM64_FRAMEWORK=$(find temp_extracted -path "*/ios-arm64/MetalANGLEKit.framework" | head -n 1)
+            
+            if [ -n "$ARM64_FRAMEWORK" ]; then
+              echo "Found arm64 framework at: $ARM64_FRAMEWORK"
+              cp -R "$ARM64_FRAMEWORK" Mindustry/ios/libs/
+            else
+              echo "ERROR: Could not find arm64 MetalANGLEKit.framework inside zip!"
+              exit 1
+            fi
+            rm -rf temp_extracted
           else
-            echo "ERROR: Could not find arm64 MetalANGLEKit.framework"
-            exit 1
+            echo "MetalANGLEKit.zip not found in root, skipping extraction step."
           fi
 
-          rm -rf temp_extracted
-          FOUND_FRAMEWORK=$(find temp_extracted -name "MetalANGLEKit.framework" | head -n 1)
-          if [ -n "$FOUND_FRAMEWORK" ]; then
-            cp -R "$FOUND_FRAMEWORK" Mindustry/ios/libs/
-          fi
-          rm -rf temp_extracted
-
-      - name: Resolve Dependencies & Patch RoboVM Cache
+      - name: Create Framework Stubs for Legacy Linker Flags
         run: |
-          cd Mindustry
-          # Download dependencies into ~/.gradle without running full build
-          ./gradlew :ios:dependencies --no-daemon
+          TARGET_DIR="Mindustry/ios/libs"
+          mkdir -p "$TARGET_DIR"
 
-          # Find backend-robovm JAR and extract it into RoboVM's target cache path before compilation
-          ARC_JAR=$(find ~/.gradle/caches/modules-2 -name "backend-robovm-*.jar" | head -n 1)
-          if [ -n "$ARC_JAR" ]; then
-            echo "Found backend-robovm jar at $ARC_JAR"
-            TARGET_DIR="$HOME/.robovm/cache/ios/arm64/release${ARC_JAR#$HOME/.gradle/caches}/backend-robovm.jar.extracted"
-            mkdir -p "$TARGET_DIR"
-            unzip -o -q "$ARC_JAR" -d "$TARGET_DIR"
+          make_stub() {
+            FW_NAME="$1"
+            FW_DIR="$TARGET_DIR/$FW_NAME.framework"
+            mkdir -p "$FW_DIR"
 
-            # Patch robovm.xml inside extracted cache to stop asking for missing GLES frameworks
-            find "$TARGET_DIR" -name "robovm.xml" | while read -r xmlfile; do
-              sed -i '' '/<framework>libGLESv2<\/framework>/d' "$xmlfile"
-              sed -i '' '/<framework>libEGL<\/framework>/d' "$xmlfile"
-              sed -i '' '/<framework>libfeature_support<\/framework>/d' "$xmlfile"
-            done
-          fi
+            echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>'$FW_NAME'</string><key>CFBundleIdentifier</key><string>org.gnu.'$FW_NAME'</string><key>CFBundlePackageType</key><string>FWK</string></dict></plist>' > "$FW_DIR/Info.plist"
+
+            clang -dynamiclib -allowable_client any \
+              -install_name "@rpath/$FW_NAME.framework/$FW_NAME" \
+              -o "$FW_DIR/$FW_NAME" \
+              -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
+              -target arm64-apple-ios15.0
+          }
+
+          make_stub "libGLESv2"
+          make_stub "libEGL"
+          make_stub "libfeature_support"
 
       - name: Run robovmArchive
         run: |
