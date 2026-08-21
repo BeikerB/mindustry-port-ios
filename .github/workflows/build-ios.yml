@@ -78,7 +78,10 @@ jobs:
 
       - name: Pre-build Arc JARs
         run: |
-          cd Mindustry
+          cd Arc
+          chmod +x gradlew || true
+          ./gradlew :backends:backend-robovm:jar
+          cd ../Mindustry
           ./gradlew pack
 
       - name: Repackage backend-robovm JAR with Frameworks
