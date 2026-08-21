@@ -36,13 +36,13 @@ jobs:
           mkdir -p Mindustry/ios/libs
           mkdir -p temp_extracted
           
-          ZIP_FILE=$(find . -maxdepth 2 -iname "*MetalANGLE*.zip" | head -n 1)
+          ZIP_FILE=$(find . -iname "*MetalANGLE*.zip" | head -n 1)
           
           if [ -n "$ZIP_FILE" ]; then
             echo "Found MetalANGLE zip file at: $ZIP_FILE"
             unzip -q -o "$ZIP_FILE" -d temp_extracted
           else
-            echo "ERROR: MetalANGLEKit.zip was not found in the root directory!"
+            echo "ERROR: MetalANGLEKit.zip was not found!"
             exit 1
           fi
 
@@ -62,7 +62,6 @@ jobs:
         run: |
           mkdir -p Mindustry/ios/libs
 
-          # Download Arc native libraries release archive
           curl -L -s -o arccoreios.zip "https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip" || true
           
           if [ -f "arccoreios.zip" ]; then
@@ -72,42 +71,36 @@ jobs:
             rm -rf temp_natives arccoreios.zip
           fi
 
-          if [ ! -f "Mindustry/ios/libs/libarc-freetype.a" ]; then
-            echo "WARNING: libarc-freetype.a not found via release zip, verifying directory..."
-          fi
-
-      - name: Resolve Dependencies and Patch Extracted Configs
+      - name: Force RoboVM Cache Creation & Inject Framework
         run: |
           cd Mindustry
-          # 1. Run a dry-run compile to force RoboVM to extract dependency configs
+          
+          # Force Gradle/RoboVM to extract JARs and generate cache folders
           ./gradlew :ios:robovmArchive --no-daemon --dry-run || true
           cd ..
 
-          # 2. Patch every robovm.xml found across Gradle caches, RoboVM cache, and build directories
-          echo "Locating and patching all robovm.xml files..."
-          
-          find ~/.gradle/caches ~/.robovm/cache Mindustry/ios/build Mindustry/build -name "robovm.xml" 2>/dev/null | while read -r xmlfile; do
+          # Copy MetalANGLEKit.framework into all discovered RoboVM cache directories
+          echo "Injecting MetalANGLEKit.framework into RoboVM search directories..."
+          find ~/.robovm/cache -type d -name "libs" 2>/dev/null | while read -r libdir; do
+            echo "Copying to: $libdir"
+            cp -R Mindustry/ios/libs/MetalANGLEKit.framework "$libdir/"
+          done
+
+          # Dynamically append absolute framework paths into Mindustry/ios/robovm.xml
+          ABS_LIBS="$(pwd)/Mindustry/ios/libs"
+          if [ -f "Mindustry/ios/robovm.xml" ]; then
+            sed -i '' "s|<\/frameworkPaths>|<path>$ABS_LIBS<\/path><\/frameworkPaths>|" Mindustry/ios/robovm.xml
+          fi
+
+      - name: Patch Obsolete GL Framework References
+        run: |
+          # Remove old GLES/EGL references from cached robovm.xml files if extracted from old Arc JARs
+          find ~/.gradle/caches ~/.robovm/cache -name "robovm.xml" 2>/dev/null | while read -r xmlfile; do
             if grep -q "libGLESv2" "$xmlfile"; then
-              echo "Patching: $xmlfile"
               sed -i '' '/<framework>libGLESv2<\/framework>/d' "$xmlfile"
               sed -i '' '/<framework>libEGL<\/framework>/d' "$xmlfile"
               sed -i '' '/<framework>libfeature_support<\/framework>/d' "$xmlfile"
             fi
-          done
-
-          # 3. Also patch inside any JARs just in case
-          find ~/.gradle/caches/modules-2/files-2.1/com.github.Anuken.Arc/backend-robovm -name "*.jar" | while read -r jarfile; do
-            TMP_DIR=$(mktemp -d)
-            unzip -q "$jarfile" -d "$TMP_DIR"
-            XML_PATH="$TMP_DIR/META-INF/robovm/ios/robovm.xml"
-            if [ -f "$XML_PATH" ] && grep -q "libGLESv2" "$XML_PATH"; then
-              echo "Patching JAR: $jarfile"
-              sed -i '' '/<framework>libGLESv2<\/framework>/d' "$XML_PATH"
-              sed -i '' '/<framework>libEGL<\/framework>/d' "$XML_PATH"
-              sed -i '' '/<framework>libfeature_support<\/framework>/d' "$XML_PATH"
-              (cd "$TMP_DIR" && zip -q -f "$jarfile" META-INF/robovm/ios/robovm.xml)
-            fi
-            rm -rf "$TMP_DIR"
           done
 
       - name: Grant Permissions
