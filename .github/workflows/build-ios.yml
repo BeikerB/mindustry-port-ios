@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-ipa:
-    runs-on: macos-latest
+    runs-on: macos-14
 
     steps:
       - name: Checkout Repository Root
@@ -31,13 +31,26 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Extract Manual MetalANGLE Framework
+      - name: Grant Permissions
+        run: chmod +x Mindustry/gradlew
+
+      - name: Fetch Arc Native Libraries (.a files)
+        run: |
+          mkdir -p Mindustry/ios/libs
+          curl -L -s -o arccoreios.zip "https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip" || true
+          if [ -f "arccoreios.zip" ]; then
+            echo "Extracting Arc native libraries..."
+            unzip -o -q arccoreios.zip -d temp_natives
+            find temp_natives -name "*.a" -exec cp {} Mindustry/ios/libs/ \;
+            rm -rf temp_natives arccoreios.zip
+          fi
+
+      - name: Extract MetalANGLE Framework
         run: |
           mkdir -p Mindustry/ios/libs
           mkdir -p temp_extracted
           
           ZIP_FILE=$(find . -iname "*MetalANGLE*.zip" | head -n 1)
-          
           if [ -n "$ZIP_FILE" ]; then
             echo "Found MetalANGLE zip file at: $ZIP_FILE"
             unzip -q -o "$ZIP_FILE" -d temp_extracted
@@ -47,74 +60,37 @@ jobs:
           fi
 
           FOUND_FRAMEWORK=$(find temp_extracted -name "MetalANGLEKit.framework" | head -n 1)
-          
           if [ -n "$FOUND_FRAMEWORK" ]; then
-            echo "Copying MetalANGLEKit.framework to Mindustry/ios/libs..."
             cp -R "$FOUND_FRAMEWORK" Mindustry/ios/libs/
-          else
-            echo "ERROR: MetalANGLEKit.framework missing inside zip!"
-            exit 1
           fi
-          
           rm -rf temp_extracted
 
-      - name: Fetch Arc Native Libraries (.a files)
-        run: |
-          mkdir -p Mindustry/ios/libs
-
-          curl -L -s -o arccoreios.zip "https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip" || true
-          
-          if [ -f "arccoreios.zip" ]; then
-            echo "Extracting Arc native libraries..."
-            unzip -o -q arccoreios.zip -d temp_natives
-            find temp_natives -name "*.a" -exec cp {} Mindustry/ios/libs/ \;
-            rm -rf temp_natives arccoreios.zip
-          fi
-
-      - name: Force RoboVM Cache Creation & Inject Framework
+      - name: Resolve Dependencies & Patch RoboVM Cache
         run: |
           cd Mindustry
-          
-          # Force Gradle/RoboVM to extract JARs and generate cache folders
-          ./gradlew :ios:robovmArchive --no-daemon --dry-run || true
-          cd ..
+          # Download dependencies into ~/.gradle without running full build
+          ./gradlew :ios:dependencies --no-daemon
 
-          # Copy MetalANGLEKit.framework into all discovered RoboVM cache directories
-          echo "Injecting MetalANGLEKit.framework into RoboVM search directories..."
-          find ~/.robovm/cache -type d -name "libs" 2>/dev/null | while read -r libdir; do
-            echo "Copying to: $libdir"
-            cp -R Mindustry/ios/libs/MetalANGLEKit.framework "$libdir/"
-          done
+          # Find backend-robovm JAR and extract it into RoboVM's target cache path before compilation
+          ARC_JAR=$(find ~/.gradle/caches/modules-2 -name "backend-robovm-*.jar" | head -n 1)
+          if [ -n "$ARC_JAR" ]; then
+            echo "Found backend-robovm jar at $ARC_JAR"
+            TARGET_DIR="$HOME/.robovm/cache/ios/arm64/release${ARC_JAR#$HOME/.gradle/caches}/backend-robovm.jar.extracted"
+            mkdir -p "$TARGET_DIR"
+            unzip -o -q "$ARC_JAR" -d "$TARGET_DIR"
 
-          # Dynamically append absolute framework paths into Mindustry/ios/robovm.xml
-          ABS_LIBS="$(pwd)/Mindustry/ios/libs"
-          if [ -f "Mindustry/ios/robovm.xml" ]; then
-            sed -i '' "s|<\/frameworkPaths>|<path>$ABS_LIBS<\/path><\/frameworkPaths>|" Mindustry/ios/robovm.xml
-          fi
-
-      - name: Patch Obsolete GL Framework References
-        run: |
-          # Remove old GLES/EGL references from cached robovm.xml files if extracted from old Arc JARs
-          find ~/.gradle/caches ~/.robovm/cache -name "robovm.xml" 2>/dev/null | while read -r xmlfile; do
-            if grep -q "libGLESv2" "$xmlfile"; then
+            # Patch robovm.xml inside extracted cache to stop asking for missing GLES frameworks
+            find "$TARGET_DIR" -name "robovm.xml" | while read -r xmlfile; do
               sed -i '' '/<framework>libGLESv2<\/framework>/d' "$xmlfile"
               sed -i '' '/<framework>libEGL<\/framework>/d' "$xmlfile"
               sed -i '' '/<framework>libfeature_support<\/framework>/d' "$xmlfile"
-            fi
-          done
-
-      - name: Clean RoboVM Cache
-        run: |
-          rm -rf ~/.robovm/cache
-          ./gradlew clean
-
-      - name: Grant Permissions
-        run: chmod +x Mindustry/gradlew
+            done
+          fi
 
       - name: Run robovmArchive
         run: |
           cd Mindustry
-          ./gradlew robovmArchive \
+          ./gradlew :ios:robovmArchive \
             --no-daemon \
             -Probovm.iosSkipSigning=true \
             -Probovm.archs=arm64
