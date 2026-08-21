@@ -1,117 +1,29 @@
-name: Build iOS IPA
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build-ipa:
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout Repository Root
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-          submodules: recursive
-
-      - name: Checkout Mindustry
-        uses: actions/checkout@v4
-        with:
-          path: Mindustry
-          lfs: true
-          submodules: recursive
-
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Extract Manual MetalANGLE Framework
+- name: Resolve Dependencies and Patch Arc JAR
         run: |
-          mkdir -p Mindustry/ios/libs
-          mkdir -p temp_extracted
-          
-          ZIP_FILE=$(find . -maxdepth 2 -iname "*MetalANGLE*.zip" | head -n 1)
-          
-          if [ -n "$ZIP_FILE" ]; then
-            echo "Found zip file at: $ZIP_FILE"
-            unzip -q -o "$ZIP_FILE" -d temp_extracted
-          else
-            echo "ERROR: MetalANGLEKit.zip was not found!"
-            exit 1
-          fi
+          # 1. Force Gradle to download dependencies so the JAR exists in cache
+          cd Mindustry
+          ./gradlew :ios:dependencies --no-daemon || true
+          cd ..
 
-          FOUND_FRAMEWORK=$(find temp_extracted -name "MetalANGLEKit.framework" | head -n 1)
-          
-          if [ -n "$FOUND_FRAMEWORK" ]; then
-            echo "Copying MetalANGLEKit.framework to Mindustry/ios/libs..."
-            cp -R "$FOUND_FRAMEWORK" Mindustry/ios/libs/
-          else
-            echo "ERROR: MetalANGLEKit.framework missing inside zip!"
-            exit 1
-          fi
-          
-          rm -rf temp_extracted
-          
-      - name: Fetch and Extract Arc Native Libraries
-        run: |
-          mkdir -p Mindustry/ios/libs
-
-          # Download Arc native libraries archive
-          curl -L -s -o arccoreios.zip "https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip" || true
-          
-          if [ -f "arccoreios.zip" ]; then
-            echo "Extracting Arc native libraries..."
-            unzip -o -q arccoreios.zip -d temp_natives
-            # Copy all .a static libraries into Mindustry/ios/libs
-            find temp_natives -name "*.a" -exec cp {} Mindustry/ios/libs/ \;
-            rm -rf temp_natives arccoreios.zip
-          fi
-
-          # Verify that libarc-freetype.a exists
-          if [ ! -f "Mindustry/ios/libs/libarc-freetype.a" ]; then
-            echo "ERROR: libarc-freetype.a is missing from Mindustry/ios/libs/"
-            echo "Contents of Mindustry/ios/libs/:"
-            ls -la Mindustry/ios/libs/
-            exit 1
-          else
-            echo "Successfully populated Mindustry/ios/libs with native libraries."
-          fi
-
-      - name: Grant Permissions
-        run: chmod +x Mindustry/gradlew
-
-      - name: Patch Arc JAR to Remove Invalid Framework Entries
-        run: |
+          # 2. Extract, patch, and repackage any Arc backend-robovm JARs
           find ~/.gradle/caches/modules-2/files-2.1/com.github.Anuken.Arc/backend-robovm -name "*.jar" | while read -r jarfile; do
-            echo "Patching $jarfile..."
-            mkdir -p temp_jar
-            unzip -q "$jarfile" -d temp_jar
+            echo "Patching JAR: $jarfile"
+            TMP_DIR=$(mktemp -d)
+            unzip -q "$jarfile" -d "$TMP_DIR"
             
-            if [ -f "temp_jar/META-INF/robovm/ios/robovm.xml" ]; then
-              sed -i '' '/<framework>libGLESv2<\/framework>/d' temp_jar/META-INF/robovm/ios/robovm.xml
-              sed -i '' '/<framework>libEGL<\/framework>/d' temp_jar/META-INF/robovm/ios/robovm.xml
-              sed -i '' '/<framework>libfeature_support<\/framework>/d' temp_jar/META-INF/robovm/ios/robovm.xml
+            # Check for robovm.xml inside the extracted JAR
+            XML_PATH="$TMP_DIR/META-INF/robovm/ios/robovm.xml"
+            if [ -f "$XML_PATH" ]; then
+              echo "Removing invalid framework tags from $XML_PATH"
+              sed -i '' '/<framework>libGLESv2<\/framework>/d' "$XML_PATH"
+              sed -i '' '/<framework>libEGL<\/framework>/d' "$XML_PATH"
+              sed -i '' '/<framework>libfeature_support<\/framework>/d' "$XML_PATH"
               
-              (cd temp_jar && zip -q -r "$jarfile" .)
+              # Overwrite the original JAR with patched contents
+              (cd "$TMP_DIR" && zip -q -r "$jarfile" .)
             fi
-            rm -rf temp_jar
+            rm -rf "$TMP_DIR"
           done
 
-      - name: Run robovmArchive
-        run: |
-          cd Mindustry
-          ./gradlew robovmArchive \
-            --no-daemon \
-            -Probovm.iosSkipSigning=true \
-            -Probovm.archs=arm64
-
-      - name: Upload IPA Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mindustry-iOS-IPA
-          path: |
-            Mindustry/ios/build/robovm/*.ipa
-            Mindustry/ios/build/robovm.tmp/*.ipa
-          retention-days: 7
+          # 3. Wipe RoboVM cache so it extracts the freshly patched JAR
+          rm -rf ~/.robovm/cache
