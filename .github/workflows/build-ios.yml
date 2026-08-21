@@ -54,6 +54,31 @@ jobs:
           
           rm -rf temp_extracted
 
+      - name: Fetch and Extract Arc Native Libraries
+        run: |
+          mkdir -p Mindustry/ios/libs
+
+          # Download Arc native libraries archive
+          curl -L -s -o arccoreios.zip "https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip" || true
+          
+          if [ -f "arccoreios.zip" ]; then
+            echo "Extracting Arc native libraries..."
+            unzip -o -q arccoreios.zip -d temp_natives
+            # Copy all .a static libraries into Mindustry/ios/libs
+            find temp_natives -name "*.a" -exec cp {} Mindustry/ios/libs/ \;
+            rm -rf temp_natives arccoreios.zip
+          fi
+
+          # Verify that libarc-freetype.a exists
+          if [ ! -f "Mindustry/ios/libs/libarc-freetype.a" ]; then
+            echo "ERROR: libarc-freetype.a is missing from Mindustry/ios/libs/"
+            echo "Contents of Mindustry/ios/libs/:"
+            ls -la Mindustry/ios/libs/
+            exit 1
+          else
+            echo "Successfully populated Mindustry/ios/libs with native libraries."
+          fi
+
       - name: Grant Permissions
         run: chmod +x Mindustry/gradlew
 
