@@ -51,12 +51,13 @@ jobs:
 
       - name: Build iOS IPA
         run: |
-          ./gradlew pack -PnoLocalArc=true
+          # Use local Arc instead of remote JitPack resolution
+          ./gradlew pack -PnoLocalArc=false
           ./gradlew :ios:robovmArchive \
             --no-daemon \
             -Probovm.iosSkipSigning=true \
             -Probovm.archs=arm64 \
-            -PnoLocalArc=true \
+            -PnoLocalArc=false \
             -Probovm.linkerFlags="-ld_classic"
 
       - name: Upload IPA Artifact
