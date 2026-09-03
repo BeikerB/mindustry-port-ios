@@ -1,45 +1,69 @@
-name: Mindustry Compiler
+name: Mindustry iOS Compiler
 
 on:
-  push:
-    tags:
-      - '*'
   workflow_dispatch:
-
-env:
-  GH_TOKEN: ${{ github.token }}
 
 jobs:
   ios-comp:
-   runs-on: macos-13
-   permissions: write-all
-   steps:
-     - uses: actions/checkout@v4
-     - name: Setup Xcode
-       uses: maxim-lobanov/setup-xcode@v1.4.1
-       with:
-          xcode-version: 14.3.1
-     - name: Set env
-       run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+    runs-on: macos-14
 
-     - name: Get dependencies/Arc natives for iOS
-       run : |
-         brew install gnu-sed
-         mkdir -p Arc/natives
-         wget https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip
-         unzip arccoreios.zip -d Arc/natives
-    
-     - name: Build
-       run: |
-          git clone --depth=1 --recurse-submodules -b ios-deploy https://github.com/sonphantrung/mindustry
-          cd mindustry
-          echo "BODY=$(git rev-parse HEAD)" >> $GITHUB_ENV
-          gsed -i 's/io.anuke.mindustry/io.anuke.mindustry.be/g' ios/build.gradle
-          gsed -i "s/Mindustry/Mindustry BE/g" ios/build.gradle
-          chmod +x ./gradlew
+    steps:
+      - name: Checkout Mindustry (ios-deploy branch)
+        uses: actions/checkout@v4
+        with:
+          repository: 'sonphantrung/mindustry'
+          ref: 'ios-deploy'
+          submodules: recursive
+          lfs: true
+
+      - name: Setup Xcode 15.4
+        uses: maxim-lobanov/setup-xcode@v1.4.1
+        with:
+          xcode-version: '15.4.0'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Tools and Fetch Arc Natives
+        run: |
+          brew install gnu-sed
+          mkdir -p Arc/natives
+          wget https://github.com/sonphantrung/Arc/releases/download/ios-natives/arccoreios.zip
+          unzip -o arccoreios.zip -d Arc/natives
+
+          mkdir -p ios/libs
+          ZIP_FILE=$(find . -maxdepth 2 -iname "*MetalANGLE*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Extracting MetalANGLE..."
+            unzip -q -o "$ZIP_FILE" -d temp_extracted
+            FOUND_FW=$(find temp_extracted -name "MetalANGLEKit.framework" | head -n 1)
+            if [ -n "$FOUND_FW" ]; then
+              cp -R "$FOUND_FW" ios/libs/
+            fi
+            rm -rf temp_extracted
+          fi
+
+      - name: Grant Permissions
+        run: chmod +x ./gradlew
+
+      - name: Build iOS IPA
+        run: |
           ./gradlew pack -PnoLocalArc=true
-          ./gradlew --stacktrace :ios:deploy -Probovm.iosSkipSigning=true -Pbuildversion=${RELEASE_VERSION} -PversionType=bleeding-edge -PnoLocalArc=true -PshowCommitHash=true
-     - name: Release
-       run: |
-          gh release create ${{ env.RELEASE_VERSION }} --notes ${{ env.BODY }} --title ${{ env.RELEASE_VERSION }}
-          gh release upload ${{ env.RELEASE_VERSION }} mindustry/ios/build/robovm/IOSLauncher.ipa
+          ./gradlew :ios:robovmArchive \
+            --no-daemon \
+            -Probovm.iosSkipSigning=true \
+            -Probovm.archs=arm64 \
+            -PnoLocalArc=true \
+            -Probovm.linkerFlags="-ld_classic"
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mindustry-iOS-IPA
+          path: |
+            ios/build/robovm/*.ipa
+            ios/build/robovm.tmp/*.ipa
+          retention-days: 7
