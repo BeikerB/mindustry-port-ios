@@ -11,7 +11,7 @@ env:
 
 jobs:
   ios-comp:
-   runs-on: macos-14
+   runs-on: macos-13
    permissions: write-all
    steps:
      - uses: actions/checkout@v4
